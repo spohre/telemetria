@@ -1,0 +1,7 @@
+mvn test '-Dtest=AnalisadorDeAnomaliasTest*#temperaturaAcimaDoLimiteGeraAlerta'
+mvn test '-Dtest=AnalisadorDeAnomaliasTest*#temperaturaExatamenteNoLimiteNaoGeraAlerta'
+mvn test '-Dtest=AnalisadorDeAnomaliasTest*#velocidadeAbaixoDaFaixaGeraAlerta'
+mvn test '-Dtest=AnalisadorDeAnomaliasTest*#velocidadeAcimaDaFaixaGeraAlerta'
+mvn test '-Dtest=AnalisadorDeAnomaliasTest*#pressaoAbaixoDaFaixaGeraAlerta'
+mvn test '-Dtest=AnalisadorDeAnomaliasTest*#umidadeAcimaDaFaixaGeraAlerta'
+mvn test '-Dtest=AnalisadorDeAnomaliasTest*#fronteirasNaTemperatura'

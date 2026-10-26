@@ -1,37 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>br.edu.unicesumar</groupId>
-  <artifactId>telemetria</artifactId>
-  <version>1.0</version>
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
 
-  <properties>
-    <maven.compiler.release>17</maven.compiler.release>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-  </properties>
+    <groupId>br.unicesumar</groupId>
+    <artifactId>telemetria</artifactId>
+    <version>1.0.0</version>
+    <name>Sistema de Recepção e Análise de Telemetria</name>
 
-  <dependencies>
-    <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <version>5.10.2</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.h2database</groupId>
-      <artifactId>h2</artifactId>
-      <version>2.2.224</version>
-    </dependency>
-  </dependencies>
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <junit.version>5.11.3</junit.version>
+        <!-- Tags JUnit excluídas do `mvn test` padrão. O teste de estresse (Prompt 7)
+             só roda com `mvn test -Dgroups=estresse` (ver perfil "estresse" abaixo). -->
+        <testes.excluidos>estresse</testes.excluidos>
+    </properties>
 
-  <build>
-    <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.2.5</version>
-      </plugin>
-    </plugins>
-  </build>
+    <dependencies>
+        <!-- Driver JDBC: H2 embarcado em modo arquivo (persiste entre execuções, sem instalar servidor).
+             Para PostgreSQL/MySQL, troque este driver e a URL em db.properties. -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>2.3.232</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <!-- Pastas enxutas (sem src/main/java/br/unicesumar/telemetria):
+             src/main = código (pacotes domain, infra, app) · src/test = testes · src/resources = configuração e SQL -->
+        <sourceDirectory>src/main</sourceDirectory>
+        <testSourceDirectory>src/test</testSourceDirectory>
+        <resources>
+            <resource>
+                <directory>src/resources</directory>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+                <configuration>
+                    <!-- Padrão: unitários + integração (@Tag("integracao")); estresse fica de fora. -->
+                    <excludedGroups>${testes.excluidos}</excludedGroups>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <!-- Ponto de entrada do sistema (criado no Prompt 6).
+                         Modo console: ver Main.java (argumento console, com dois hifens antes).
+                         Interface com dados falsos: -Dexec.mainClass=app.ui.demo.DemoInterface -->
+                    <mainClass>app.Main</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- `mvn test -Dgroups=estresse` liga este perfil e remove a exclusão,
+             então só os testes marcados com @Tag("estresse") rodam. -->
+        <profile>
+            <id>estresse</id>
+            <activation>
+                <property>
+                    <name>groups</name>
+                    <value>estresse</value>
+                </property>
+            </activation>
+            <properties>
+                <testes.excluidos>nenhuma-tag</testes.excluidos>
+            </properties>
+        </profile>
+    </profiles>
 </project>

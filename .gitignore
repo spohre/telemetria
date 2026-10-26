@@ -1,5 +1,13 @@
+# build
 target/
+*.class
+
+# dados gerados em execução (banco H2, log e extratos)
+data/
 *.log
+# ...exceto o log de exemplo, que é entregável
+!entregaveis/*.log
+
+# IDEs
 .vscode/
 .idea/
-*.class

@@ -1,0 +1,37 @@
+11:44:13.659  INFO    [banco]       Conectado: jdbc:h2:./data/telemetria;DB_CLOSE_DELAY=-1
+11:44:13.686  INFO    [sistema]     4 sensores e 1 consumidor(es) iniciados (intervalo 200 ms)
+11:44:17.294  ALERTA  [PRES-01]     10,6 bar: acima do limite 8,0 bar | CRITICA | salvo #1
+11:44:17.897  ALERTA  [UMID-01]     9,6 %: abaixo do limite 20,0 % | MEDIA | salvo #2
+11:44:19.497  ALERTA  [VEL-01]      163,0 km/h: acima do limite 120,0 km/h | CRITICA | salvo #3
+11:44:19.500  ALERTA  [PRES-01]     8,6 bar: acima do limite 8,0 bar | MEDIA | salvo #4
+11:44:19.697  ALERTA  [VEL-01]      -9,9 km/h: abaixo do limite 0,0 km/h | MEDIA | salvo #5
+11:44:19.898  ALERTA  [TEMP-01]     104,6 °C: acima do limite 80,0 °C | CRITICA | salvo #6
+11:44:21.300  ALERTA  [UMID-01]     115,3 %: acima do limite 90,0 % | CRITICA | salvo #7
+11:44:21.701  ALERTA  [VEL-01]      140,5 km/h: acima do limite 120,0 km/h | ALTA | salvo #8
+11:44:22.101  ALERTA  [TEMP-01]     94,2 °C: acima do limite 80,0 °C | ALTA | salvo #9
+11:44:23.705  ALERTA  [TEMP-01]     -25,6 °C: abaixo do limite 0,0 °C | CRITICA | salvo #10
+11:44:24.706  ALERTA  [PRES-01]     -1,5 bar: abaixo do limite 1,0 bar | CRITICA | salvo #11
+11:44:25.508  ALERTA  [UMID-01]     97,8 %: acima do limite 90,0 % | MEDIA | salvo #12
+11:44:25.508  ALERTA  [VEL-01]      154,0 km/h: acima do limite 120,0 km/h | ALTA | salvo #13
+11:44:26.911  ALERTA  [TEMP-01]     86,8 °C: acima do limite 80,0 °C | MEDIA | salvo #14
+11:44:28.713  INFO    [sistema]     Encerrado: 300 leituras, 0 perdidas, 14 alertas. Extrato: data/extrato-20261026-114428.txt
+
+EXTRATO DA EXECUÇÃO — Central de Telemetria
+Período ......... 26/10/2026 11:44:13 → 11:44:28 (0:00:15)
+Configuração .... 4 sensores · 1 consumidor(es) · intervalo 200 ms
+
+LEITURAS
+  Produzidas ...... 300
+  Processadas ..... 300
+  Perdidas ........ 0   (produzidas − processadas)
+
+ALERTAS POR TIPO / SEVERIDADE
+  TEMPERATURA   BAIXA 0    MEDIA 1    ALTA 1    CRITICA 2     total 4
+  VELOCIDADE    BAIXA 0    MEDIA 1    ALTA 2    CRITICA 1     total 4
+  PRESSAO       BAIXA 0    MEDIA 1    ALTA 0    CRITICA 2     total 3
+  UMIDADE       BAIXA 0    MEDIA 2    ALTA 0    CRITICA 1     total 3
+  TOTAL ........... 14 alertas  (gravados no banco: 14)
+
+ARQUIVOS
+  Log de leituras  data/leituras.log
+  Banco            jdbc:h2:./data/telemetria;DB_CLOSE_DELAY=-1

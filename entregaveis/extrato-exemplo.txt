@@ -1,0 +1,19 @@
+EXTRATO DA EXECUÇÃO — Central de Telemetria
+Período ......... 26/10/2026 11:44:13 → 11:44:28 (0:00:15)
+Configuração .... 4 sensores · 1 consumidor(es) · intervalo 200 ms
+
+LEITURAS
+  Produzidas ...... 300
+  Processadas ..... 300
+  Perdidas ........ 0   (produzidas − processadas)
+
+ALERTAS POR TIPO / SEVERIDADE
+  TEMPERATURA   BAIXA 0    MEDIA 1    ALTA 1    CRITICA 2     total 4
+  VELOCIDADE    BAIXA 0    MEDIA 1    ALTA 2    CRITICA 1     total 4
+  PRESSAO       BAIXA 0    MEDIA 1    ALTA 0    CRITICA 2     total 3
+  UMIDADE       BAIXA 0    MEDIA 2    ALTA 0    CRITICA 1     total 3
+  TOTAL ........... 14 alertas  (gravados no banco: 14)
+
+ARQUIVOS
+  Log de leituras  data/leituras.log
+  Banco            jdbc:h2:./data/telemetria;DB_CLOSE_DELAY=-1

@@ -1,0 +1,42 @@
+===== EXECUÇÃO 1
+11:43:45.790  INFO    [banco]       Conectado: jdbc:h2:./data/telemetria;DB_CLOSE_DELAY=-1
+11:43:45.816  INFO    [sistema]     4 sensores e 1 consumidor(es) iniciados (intervalo 200 ms)
+11:43:46.821  ALERTA  [VEL-01]      -23,1 km/h: abaixo do limite 0,0 km/h | ALTA | salvo #1
+11:43:47.424  ALERTA  [PRES-01]     9,2 bar: acima do limite 8,0 bar | ALTA | salvo #2
+11:43:47.622  ALERTA  [UMID-01]     97,6 %: acima do limite 90,0 % | MEDIA | salvo #3
+11:43:48.223  ALERTA  [TEMP-01]     87,4 °C: acima do limite 80,0 °C | MEDIA | salvo #4
+11:43:50.226  ALERTA  [UMID-01]     108,6 %: acima do limite 90,0 % | ALTA | salvo #5
+11:43:50.627  ALERTA  [UMID-01]     17,6 %: abaixo do limite 20,0 % | BAIXA | salvo #6
+11:43:50.627  ALERTA  [TEMP-01]     -24,3 °C: abaixo do limite 0,0 °C | CRITICA | salvo #7
+11:43:51.027  ALERTA  [UMID-01]     14,9 %: abaixo do limite 20,0 % | MEDIA | salvo #8
+11:43:51.630  ALERTA  [TEMP-01]     -30,7 °C: abaixo do limite 0,0 °C | CRITICA | salvo #9
+11:43:52.230  ALERTA  [VEL-01]      158,7 km/h: acima do limite 120,0 km/h | CRITICA | salvo #10
+11:43:52.430  ALERTA  [VEL-01]      139,4 km/h: acima do limite 120,0 km/h | ALTA | salvo #11
+11:43:53.431  ALERTA  [UMID-01]     107,5 %: acima do limite 90,0 % | ALTA | salvo #12
+11:43:53.634  ALERTA  [PRES-01]     -0,4 bar: abaixo do limite 1,0 bar | ALTA | salvo #13
+11:43:54.835  ALERTA  [PRES-01]     0,8 bar: abaixo do limite 1,0 bar | BAIXA | salvo #14
+11:43:55.844  INFO    [sistema]     Encerrado: 200 leituras, 0 perdidas, 14 alertas. Extrato: data/extrato-20261026-114355.txt
+ALERTAS POR TIPO / SEVERIDADE
+--- tabela alerta depois da execução 1:
+TOTAL | PRIMEIRO | ULTIMO
+14    | 1        | 14
+(1 row, 14 ms)
+===== EXECUÇÃO 2
+11:43:56.779  INFO    [banco]       Conectado: jdbc:h2:./data/telemetria;DB_CLOSE_DELAY=-1
+11:43:56.819  INFO    [sistema]     4 sensores e 1 consumidor(es) iniciados (intervalo 200 ms)
+11:43:57.024  ALERTA  [VEL-01]      139,2 km/h: acima do limite 120,0 km/h | ALTA | salvo #15
+11:43:58.024  ALERTA  [TEMP-01]     -13,0 °C: abaixo do limite 0,0 °C | ALTA | salvo #16
+11:43:58.224  ALERTA  [TEMP-01]     -12,3 °C: abaixo do limite 0,0 °C | ALTA | salvo #17
+11:43:59.026  ALERTA  [TEMP-01]     97,6 °C: acima do limite 80,0 °C | ALTA | salvo #18
+11:43:59.028  ALERTA  [UMID-01]     96,0 %: acima do limite 90,0 % | MEDIA | salvo #19
+11:43:59.227  ALERTA  [TEMP-01]     -8,0 °C: abaixo do limite 0,0 °C | MEDIA | salvo #20
+11:43:59.429  ALERTA  [UMID-01]     110,8 %: acima do limite 90,0 % | ALTA | salvo #21
+11:44:01.631  ALERTA  [TEMP-01]     -30,1 °C: abaixo do limite 0,0 °C | CRITICA | salvo #22
+11:44:05.037  ALERTA  [PRES-01]     8,8 bar: acima do limite 8,0 bar | MEDIA | salvo #23
+11:44:06.642  ALERTA  [PRES-01]     0,9 bar: abaixo do limite 1,0 bar | BAIXA | salvo #24
+11:44:06.841  INFO    [sistema]     Encerrado: 200 leituras, 0 perdidas, 10 alertas. Extrato: data/extrato-20261026-114406.txt
+ALERTAS POR TIPO / SEVERIDADE
+--- tabela alerta depois da execução 2:
+TOTAL | PRIMEIRO | ULTIMO
+24    | 1        | 24
+(1 row, 12 ms)

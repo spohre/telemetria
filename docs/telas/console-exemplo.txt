@@ -1,0 +1,12 @@
+20:01:45.567  INFO    [sistema]     8 sensores e 2 consumidor(es) iniciados (intervalo 150 ms)
+20:01:47.999  ALERTA  [TEMP-02]     82,7 °C: acima do limite 80,0 °C | ALTA | salvo #1
+20:01:48.128  ALERTA  [PRES-01]     6,7 bar: acima do limite 6,0 bar | CRITICA | salvo #2
+20:01:48.267  ALERTA  [UMID-01]     18,0 %: abaixo do mínimo 20,0 % | BAIXA | salvo #3
+20:01:48.282  ALERTA  [TEMP-01]     91,5 °C: acima do limite 80,0 °C | ALTA | salvo #4
+20:01:49.798  ALERTA  [TEMP-02]     -4,7 °C: abaixo do mínimo 0,0 °C | ALTA | salvo #5
+20:01:50.078  ALERTA  [PRES-01]     0,6 bar: abaixo do mínimo 1,0 bar | CRITICA | salvo #6
+20:01:50.698  ALERTA  [TEMP-02]     -5,2 °C: abaixo do mínimo 0,0 °C | ALTA | salvo #7
+20:01:50.705  ALERTA  [VEL-01]      135,1 km/h: acima do limite 120,0 km/h | MEDIA | salvo #8
+20:01:50.848  ALERTA  [TEMP-02]     -1,7 °C: abaixo do mínimo 0,0 °C | ALTA | salvo #9
+20:01:51.755  ALERTA  [VEL-01]      127,3 km/h: acima do limite 120,0 km/h | MEDIA | salvo #10
+20:01:52.342  ALERTA  [UMID-02]     14,7 %: abaixo do mínimo 20,0 % | BAIXA | salvo #11

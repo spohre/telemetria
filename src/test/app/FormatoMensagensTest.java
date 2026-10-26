@@ -1,0 +1,90 @@
+package app;
+
+import domain.Alerta;
+import domain.LeituraTelemetria;
+import domain.Severidade;
+import domain.TipoSensor;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/** Padrão de console, log e extrato — testado sem Swing, sem threads e sem banco. */
+class FormatoMensagensTest {
+
+    private static final Instant T = Instant.parse("2026-10-15T22:46:02.431Z");
+
+    @Test
+    @DisplayName("linha de log tem 8 campos, ponto decimal e marca anomalia")
+    void linhaLogAnomala() {
+        var l = new LeituraTelemetria("TEMP-01", TipoSensor.TEMPERATURA, 92.5, T);
+        String[] campos = FormatoMensagens.linhaLog(l, Severidade.ALTA, "sensor-TEMP-01").split(";", -1);
+
+        assertEquals(8, campos.length);
+        assertEquals(FormatoMensagens.CABECALHO_LOG.split(";").length, campos.length);
+        assertEquals("92.50", campos[3]);
+        assertEquals("ANOMALA", campos[5]);
+        assertEquals("ALTA", campos[6]);
+    }
+
+    @Test
+    @DisplayName("leitura normal deixa a severidade vazia no log")
+    void linhaLogNormal() {
+        var l = new LeituraTelemetria("VEL-01", TipoSensor.VELOCIDADE, 64, T);
+        String[] campos = FormatoMensagens.linhaLog(l, null, "t").split(";", -1);
+        assertEquals("NORMAL", campos[5]);
+        assertEquals("", campos[6]);
+    }
+
+    @Test
+    @DisplayName("console de alerta mostra nível, sensor, valor com unidade e id salvo")
+    void consoleAlerta() {
+        var a = Alerta.de(new LeituraTelemetria("TEMP-01", TipoSensor.TEMPERATURA, 92.5, T),
+                "acima do limite 80,0 °C", Severidade.ALTA).comId(128);
+        String linha = FormatoMensagens.consoleAlerta(a);
+        assertTrue(linha.contains("ALERTA"));
+        assertTrue(linha.contains("[TEMP-01]"));
+        assertTrue(linha.contains("92,5 °C"));
+        assertTrue(linha.endsWith("salvo #128"));
+    }
+
+    @Test
+    @DisplayName("extrato destaca leituras perdidas e divergência com o banco")
+    void extratoDestacaProblemas() {
+        var cfg = new ConfiguracaoSimulacao(1, 200, 1);
+        var e = new ExtratoExecucao(T, T.plusSeconds(28), cfg, 1204, 1200,
+                Map.of(TipoSensor.TEMPERATURA, Map.of(Severidade.ALTA, 9L)), 8, "data/leituras.log", "jdbc:h2:x");
+        String texto = FormatoMensagens.extrato(e);
+        assertEquals(4, e.leiturasPerdidas());
+        assertTrue(texto.contains("Perdidas"));
+        assertEquals(2, texto.split("<<< VERIFICAR", -1).length - 1, "perdidas e banco divergente");
+        assertTrue(texto.contains("1.204"), "separador de milhar pt-BR");
+    }
+
+    @Test
+    @DisplayName("extrato sem problemas não tem destaque")
+    void extratoLimpo() {
+        var e = new ExtratoExecucao(T, T.plusSeconds(5), new ConfiguracaoSimulacao(1, 200, 1), 10, 10,
+                Map.of(), 0, "log", "banco");
+        assertFalse(FormatoMensagens.extrato(e).contains("VERIFICAR"));
+    }
+
+    @Test
+    @DisplayName("duração no formato h:mm:ss")
+    void duracao() {
+        assertEquals("0:04:12", FormatoMensagens.duracao(252));
+        assertEquals("1:00:00", FormatoMensagens.duracao(3600));
+    }
+
+    @Test
+    @DisplayName("decimal compacto: até 2 casas, no mínimo 1")
+    void decimalCompacto() {
+        assertEquals("4,0", FormatoMensagens.decimalCompacto(4));
+        assertEquals("0,35", FormatoMensagens.decimalCompacto(0.35));
+        assertEquals("10,5", FormatoMensagens.decimalCompacto(10.5));
+        assertEquals("1.050,0", FormatoMensagens.decimalCompacto(1050));
+    }
+}

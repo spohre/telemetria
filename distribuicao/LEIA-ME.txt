@@ -1,0 +1,32 @@
+CENTRAL DE TELEMETRIA
+=====================
+
+Para usar
+---------
+1. Copie esta pasta inteira para qualquer lugar onde voce possa
+   gravar arquivos (Documentos, Area de Trabalho, pendrive...).
+   Evite "C:\Arquivos de Programas": o programa grava o banco e o log aqui.
+2. De dois cliques em Telemetria.exe.
+
+Requisito: Java 17 ou mais novo instalado. Nao e preciso baixar mais nada:
+o banco de dados (H2) ja vem na pasta lib.
+
+Se aparecer "E preciso ter o Java 17 ou mais novo instalado", instale um
+(por exemplo, o Eclipse Temurin 21 em https://adoptium.net) e abra de novo.
+Se o Java ja estiver instalado numa pasta diferente da padrao, defina a
+variavel de ambiente JAVA_HOME apontando para ela.
+
+O que tem aqui
+--------------
+Telemetria.exe            abre a interface (janela)
+Telemetria-Console.exe    roda sem janela por 10 s e mostra o extrato;
+                          aceita as mesmas opcoes do modo console, ex.:
+                          Telemetria-Console.exe --console 20 --sensores 3 --consumidores 2
+telemetria.jar            o programa (tambem roda com: java -jar telemetria.jar)
+lib\h2-2.3.232.jar        banco de dados embutido
+data\                     criada na primeira execucao:
+   telemetria.mv.db       alertas gravados (continuam entre execucoes)
+   leituras.log           todas as leituras
+   extrato-*.txt          resumo de cada execucao
+
+Outros sistemas (Linux/macOS): java -jar telemetria.jar
