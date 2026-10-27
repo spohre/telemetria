@@ -10,8 +10,12 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.OffsetDateTime;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Padrão ÚNICO das mensagens do sistema: console (humano), log de leituras (máquina)
@@ -30,6 +34,10 @@ public final class FormatoMensagens {
     private static final DateTimeFormatter ARQUIVO = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(FUSO);
 
     public static final String CABECALHO_LOG = "momento;sensor;tipo;valor;unidade;resultado;severidade;thread";
+
+    private static final Pattern PERIODO_EXTRATO =
+            Pattern.compile("Período\\s*\\.+\\s*(\\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2}:\\d{2})");
+    private static final Pattern NOME_EXTRATO = Pattern.compile("extrato-(\\d{8}-\\d{6})\\.txt$");
 
     private FormatoMensagens() {
     }
@@ -65,6 +73,55 @@ public final class FormatoMensagens {
                 severidadeOuNull == null ? "NORMAL" : "ANOMALA",
                 severidadeOuNull == null ? "" : severidadeOuNull.name(),
                 nomeThread);
+    }
+
+    /**
+     * Lê de volta uma linha gerada por {@link #linhaLog}. Cabeçalho, linha em branco ou
+     * linha malformada devolvem vazio (o log é de auditoria: uma linha ruim não impede o resto).
+     */
+    public static Optional<LeituraRegistrada> lerLinhaLog(String linha) {
+        if (linha == null || linha.isBlank() || linha.startsWith(CABECALHO_LOG.substring(0, 8))) {
+            return Optional.empty();
+        }
+        String[] c = linha.split(";", -1);
+        if (c.length < 7) {
+            return Optional.empty();
+        }
+        try {
+            Instant momento = OffsetDateTime.parse(c[0]).toInstant();
+            TipoSensor tipo = TipoSensor.valueOf(c[2]);
+            double valor = Double.parseDouble(c[3]);
+            Severidade sev = c[6].isEmpty() ? null : Severidade.valueOf(c[6]);
+            return Optional.of(new LeituraRegistrada(new LeituraTelemetria(c[1], tipo, valor, momento), sev));
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    /** Início da execução lido da linha "Período" de um extrato gerado por {@link #extrato}. */
+    public static Optional<Instant> inicioDoExtrato(String textoExtrato) {
+        Matcher m = PERIODO_EXTRATO.matcher(textoExtrato == null ? "" : textoExtrato);
+        if (!m.find()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(DATA_HORA.parse(m.group(1), Instant::from));
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    /** Fim da execução lido do nome do arquivo gerado por {@link #nomeArquivoExtrato}. */
+    public static Optional<Instant> fimDoArquivoExtrato(String nomeArquivo) {
+        Matcher m = NOME_EXTRATO.matcher(nomeArquivo == null ? "" : nomeArquivo);
+        if (!m.find()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(ARQUIVO.parse(m.group(1), Instant::from));
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
     }
 
     // ------------------------------------------------------------------ valores para a tela

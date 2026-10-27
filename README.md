@@ -117,7 +117,10 @@ drenam a fila e saem → desliga estatísticas → fecha o log → grava o extra
 ## Interface
 
 Padrões visuais na skill `.claude/skills/designer-swing-telemetria/` e prévias em `docs/telas/`.
-Abas: **Monitoramento** (cartões dos sensores, leituras ao vivo, alertas recentes),
+Tema claro (fundo branco). Abas: **Monitoramento** (um gráfico de linhas por sensor, empilhados na
+vertical, com o histórico da execução em tempo real — ou da última execução, lida do log, com o
+sistema parado —, linhas pontilhadas de mínimo/máximo antes do alerta e botão para expandir;
+leituras ao vivo e alertas recentes abaixo),
 **Histórico de alertas** (consulta ao banco com filtros, inclui execuções anteriores) e
 **Regras e sensores** (faixas e escala de severidade; configuração da simulação com o sistema parado).
 

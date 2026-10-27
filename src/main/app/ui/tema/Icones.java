@@ -28,7 +28,8 @@ public final class Icones {
         INICIAR, PAUSAR, PARAR,
         TEMPERATURA, VELOCIDADE, PRESSAO, UMIDADE, SENSOR,
         ALERTA, OK, ERRO,
-        BANCO, HISTORICO, REGRAS, FILTRO, EXPORTAR, LOG, FILA, MONITORAMENTO
+        BANCO, HISTORICO, REGRAS, FILTRO, EXPORTAR, LOG, FILA, MONITORAMENTO,
+        EXPANDIR, RECOLHER
     }
 
     /** Cria o ícone no tamanho e cor pedidos. */
@@ -239,7 +240,28 @@ public final class Icones {
                 p.lineTo(21, 12);
                 g.draw(p);
             }
+            case EXPANDIR -> {             // setas saindo pelos cantos
+                g.draw(polilinha(14, 4, 20, 4, 20, 10));
+                g.draw(new Line2D.Double(20, 4, 13.5, 10.5));
+                g.draw(polilinha(10, 20, 4, 20, 4, 14));
+                g.draw(new Line2D.Double(4, 20, 10.5, 13.5));
+            }
+            case RECOLHER -> {             // setas entrando para o centro
+                g.draw(polilinha(14, 4.5, 14, 10, 19.5, 10));
+                g.draw(new Line2D.Double(14, 10, 20, 4));
+                g.draw(polilinha(10, 19.5, 10, 14, 4.5, 14));
+                g.draw(new Line2D.Double(10, 14, 4, 20));
+            }
         }
+    }
+
+    private static Path2D polilinha(double... xy) {
+        Path2D p = new Path2D.Double();
+        p.moveTo(xy[0], xy[1]);
+        for (int i = 2; i < xy.length; i += 2) {
+            p.lineTo(xy[i], xy[i + 1]);
+        }
+        return p;
     }
 
     /** "Bolinha" de controle deslizante: limpa a linha por baixo e desenha o contorno. */

@@ -21,4 +21,13 @@ public interface RepositorioDeAlertas {
      * @param desde só alertas cuja leitura aconteceu a partir deste instante
      */
     List<Alerta> buscar(String sensorId, TipoSensor tipo, Severidade severidade, Instant desde);
+
+    /**
+     * Ids de todos os sensores que já têm alerta gravado (inclusive de execuções anteriores),
+     * em ordem alfabética — para o filtro "Sensor" do histórico. Implementações com banco
+     * devem sobrescrever com uma consulta própria (esta versão padrão só vê o que {@link #buscar} devolve).
+     */
+    default List<String> sensoresComAlertas() {
+        return buscar(null, null, null, null).stream().map(Alerta::sensorId).distinct().sorted().toList();
+    }
 }

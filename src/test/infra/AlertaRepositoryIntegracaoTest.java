@@ -208,4 +208,13 @@ class AlertaRepositoryIntegracaoTest {
         assertTrue(repositorio.buscar("X' OR '1'='1", null, null, null).isEmpty());
         assertEquals(5, repositorio.contar());
     }
+
+    @Test
+    @DisplayName("sensores com alertas: cada id uma vez, em ordem alfabética")
+    void sensoresComAlertasSemRepetirEEmOrdem() {
+        assertTrue(repositorio.sensoresComAlertas().isEmpty());
+        povoarHistorico();      // TEMP-01 aparece duas vezes
+
+        assertEquals(List.of("PRES-01", "TEMP-01", "TEMP-02", "VEL-01"), repositorio.sensoresComAlertas());
+    }
 }

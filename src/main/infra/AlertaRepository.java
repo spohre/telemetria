@@ -44,6 +44,7 @@ public class AlertaRepository implements RepositorioDeAlertas {
     private static final String SQL_POR_SENSOR = SQL_COLUNAS + "WHERE sensor_id = ? ORDER BY momento_leitura, id";
     private static final String SQL_POR_ID = SQL_COLUNAS + "WHERE id = ?";
     private static final String SQL_CONTAR = "SELECT COUNT(*) FROM alerta";
+    private static final String SQL_SENSORES = "SELECT DISTINCT sensor_id FROM alerta ORDER BY sensor_id";
 
     /** Máximo de linhas devolvidas por {@link #buscar}, para a tela não travar com o histórico todo. */
     public static final int LIMITE_BUSCA = 1000;
@@ -191,6 +192,21 @@ public class AlertaRepository implements RepositorioDeAlertas {
             }
         } catch (SQLException e) {
             throw new PersistenciaException("Falha ao buscar alerta id=" + id, e);
+        }
+    }
+
+    @Override
+    public List<String> sensoresComAlertas() {
+        try (Connection conn = fabrica.abrir();
+             PreparedStatement ps = conn.prepareStatement(SQL_SENSORES);
+             ResultSet rs = ps.executeQuery()) {
+            List<String> ids = new ArrayList<>();
+            while (rs.next()) {
+                ids.add(rs.getString(1));
+            }
+            return ids;
+        } catch (SQLException e) {
+            throw new PersistenciaException("Falha ao listar os sensores com alertas", e);
         }
     }
 

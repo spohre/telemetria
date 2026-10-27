@@ -2,6 +2,7 @@ package app;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import domain.LeituraTelemetria;
 import domain.Severidade;
 import domain.TipoSensor;
 
@@ -259,5 +260,56 @@ class ControladorTelemetriaTest {
         String conteudo = Files.readString(arquivo, StandardCharsets.UTF_8);
         assertTrue(conteudo.startsWith("EXTRATO DA EXECUÇÃO"));
         assertTrue(conteudo.contains("jdbc:teste"));
+    }
+
+    // ------------------------------------------------------------------ última execução (gráficos ao abrir)
+
+    private void escreverLog(Instant... momentos) throws Exception {
+        Path log = raiz.resolve("data/leituras.log");
+        Files.createDirectories(log.getParent());
+        StringBuilder sb = new StringBuilder(FormatoMensagens.CABECALHO_LOG).append('\n');
+        for (Instant m : momentos) {
+            sb.append(FormatoMensagens.linhaLog(new LeituraTelemetria("TEMP-01", TipoSensor.TEMPERATURA, 50, m), null, "t"))
+                    .append('\n');
+        }
+        Files.writeString(log, sb.toString(), StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void ultimaExecucaoSemLogEVazia() {
+        novo(new ConfiguracaoSimulacao(1, 200, 1));
+        assertTrue(controlador.ultimaExecucao().vazio());
+    }
+
+    @Test
+    void ultimaExecucaoTrazSoAsLeiturasDaExecucaoMaisRecente() throws Exception {
+        Instant antiga = Instant.now().minus(Duration.ofHours(2)).truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        escreverLog(antiga, antiga.plusSeconds(1));         // execução anterior, já no log
+
+        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        controlador.iniciar();
+        esperarAte(() -> controlador.estatisticas().leiturasProcessadas() >= 40, "40 leituras processadas");
+        ExtratoExecucao e = controlador.parar();
+
+        HistoricoExecucao h = controlador.ultimaExecucao();
+        assertEquals(e.leiturasProcessadas(), h.leituras().size(), "todas desta execução e nenhuma da anterior");
+        assertTrue(h.inicio().isAfter(antiga.plusSeconds(60)));
+        assertEquals(e.totalAlertas(), h.leituras().stream().filter(r -> r.severidade() != null).count(),
+                "as leituras com alerta voltam com a severidade");
+    }
+
+    @Test
+    void ultimaExecucaoSemExtratoUsaOUltimoBlocoSemPausaLonga() throws Exception {
+        Instant agora = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        Instant antiga = agora.minus(Duration.ofHours(2));
+        Instant recente = agora.minus(Duration.ofMinutes(10));
+        escreverLog(antiga, antiga.plusSeconds(1), recente, recente.plusSeconds(1), recente.plusSeconds(2));
+
+        novo(new ConfiguracaoSimulacao(1, 200, 1));
+        HistoricoExecucao h = controlador.ultimaExecucao();
+
+        assertEquals(3, h.leituras().size());
+        assertEquals(recente, h.inicio());
+        assertEquals(recente.plusSeconds(2), h.fim());
     }
 }

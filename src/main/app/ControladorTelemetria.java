@@ -24,7 +24,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Random;
+import java.util.stream.Stream;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -61,6 +63,8 @@ public class ControladorTelemetria implements ControladorMonitoramento {
     public static final ConfiguracaoSimulacao CONFIGURACAO_PADRAO = new ConfiguracaoSimulacao(1, 200, 1);
 
     static final Path CAMINHO_LOG = LogArquivo.CAMINHO_PADRAO;
+    /** Sem extrato, uma pausa maior que esta entre duas leituras do log separa duas execuções. */
+    static final Duration SEPARACAO_ENTRE_EXECUCOES = Duration.ofSeconds(60);
     private static final long ESPERA_SENSOR_MS = 5_000;
     private static final long ESPERA_CONSUMIDORES_MS = 60_000;
     private static final Map<TipoSensor, String> PREFIXOS = Map.of(
@@ -325,6 +329,11 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         return repositorio.buscar(sensor, filtro.tipo(), filtro.severidade(), desde);
     }
 
+    @Override
+    public List<String> sensoresNoHistorico() {
+        return repositorio.sensoresComAlertas();
+    }
+
     /**
      * Regras para a aba "Regras e sensores": faixa aceita e a escala de severidade
      * (quanto a leitura passou do limite). A severidade "principal" é a mínima, BAIXA.
@@ -360,6 +369,78 @@ public class ControladorTelemetria implements ControladorMonitoramento {
             return arquivo.toString();
         } catch (IOException e) {
             throw new UncheckedIOException("Não foi possível gravar o extrato em " + arquivo, e);
+        }
+    }
+
+    /**
+     * Leituras da última execução, lidas de {@code data/leituras.log}.
+     *
+     * <p>O log acumula todas as execuções. A janela da última vem do extrato mais recente
+     * (início na linha "Período", fim no nome do arquivo). Se não houver extrato, ou se o
+     * log tiver leituras depois dele (execução interrompida sem Parar), vale o último bloco
+     * de leituras sem pausa maior que {@link #SEPARACAO_ENTRE_EXECUCOES}.</p>
+     *
+     * @throws UncheckedIOException se o log existe mas não pôde ser lido
+     */
+    @Override
+    public HistoricoExecucao ultimaExecucao() {
+        Path log = raiz.resolve(CAMINHO_LOG);
+        if (!Files.isRegularFile(log)) {
+            return HistoricoExecucao.VAZIO;
+        }
+        Optional<Instant[]> janela = janelaDoUltimoExtrato();
+        Instant de = janela.map(j -> j[0].minusSeconds(1)).orElse(null);
+        Instant ate = janela.map(j -> j[1].plusSeconds(1)).orElse(null);
+
+        List<LeituraRegistrada> naJanela = new ArrayList<>();
+        List<LeituraRegistrada> ultimoBloco = new ArrayList<>();
+        Instant anterior = null;
+        Instant maisRecente = null;
+        try (Stream<String> linhas = Files.lines(log, StandardCharsets.UTF_8)) {
+            for (String linha : (Iterable<String>) linhas::iterator) {
+                Optional<LeituraRegistrada> lida = FormatoMensagens.lerLinhaLog(linha);
+                if (lida.isEmpty()) {
+                    continue;
+                }
+                LeituraRegistrada r = lida.get();
+                Instant m = r.leitura().momento();
+                if (anterior != null && Duration.between(anterior, m).compareTo(SEPARACAO_ENTRE_EXECUCOES) > 0) {
+                    ultimoBloco.clear();
+                }
+                ultimoBloco.add(r);
+                anterior = m;
+                maisRecente = maisRecente == null || m.isAfter(maisRecente) ? m : maisRecente;
+                if (de != null && !m.isBefore(de) && !m.isAfter(ate)) {
+                    naJanela.add(r);
+                }
+            }
+        } catch (IOException | UncheckedIOException e) {
+            IOException causa = e instanceof IOException io ? io : ((UncheckedIOException) e).getCause();
+            throw new UncheckedIOException("Não foi possível ler o log " + log, causa);
+        }
+        boolean extratoEhOUltimo = ate != null && !naJanela.isEmpty() && !maisRecente.isAfter(ate);
+        return HistoricoExecucao.de(extratoEhOUltimo ? naJanela : ultimoBloco);
+    }
+
+    /** [início, fim] do extrato mais recente em {@code raiz/data}, se houver um legível. */
+    private Optional<Instant[]> janelaDoUltimoExtrato() {
+        Path pasta = raiz.resolve(CAMINHO_LOG).getParent();
+        if (pasta == null || !Files.isDirectory(pasta)) {
+            return Optional.empty();
+        }
+        try (Stream<Path> arquivos = Files.list(pasta)) {
+            Optional<Path> ultimo = arquivos
+                    .filter(p -> FormatoMensagens.fimDoArquivoExtrato(p.getFileName().toString()).isPresent())
+                    .max((a, b) -> a.getFileName().toString().compareTo(b.getFileName().toString()));
+            if (ultimo.isEmpty()) {
+                return Optional.empty();
+            }
+            Instant fim = FormatoMensagens.fimDoArquivoExtrato(ultimo.get().getFileName().toString()).orElseThrow();
+            Optional<Instant> inicio = FormatoMensagens.inicioDoExtrato(
+                    Files.readString(ultimo.get(), StandardCharsets.UTF_8));
+            return inicio.map(i -> new Instant[]{i, fim});
+        } catch (IOException | UncheckedIOException e) {
+            return Optional.empty();     // sem extrato legível: usa a separação por pausa
         }
     }
 

@@ -55,6 +55,10 @@ public final class Componentes {
     public enum Estilo { PRIMARIO, SECUNDARIO, PERIGO, FANTASMA }
 
     public static JButton botao(String texto, Icone icone, Estilo estilo) {
+        return botao(texto, icone, estilo, Medida.ALTURA_BOTAO);
+    }
+
+    private static JButton botao(String texto, Icone icone, Estilo estilo, int altura) {
         boolean soIcone = texto == null || texto.isEmpty();
         JButton b = new JButton(texto) {
             private static final long serialVersionUID = 1L;
@@ -62,7 +66,7 @@ public final class Componentes {
             @Override
             public Dimension getPreferredSize() {   // largura acompanha o texto; altura é sempre a do tema
                 Dimension d = super.getPreferredSize();
-                return new Dimension(soIcone ? Medida.ALTURA_BOTAO : d.width, Medida.ALTURA_BOTAO);
+                return new Dimension(soIcone ? altura : d.width, altura);
             }
 
             @Override
@@ -79,11 +83,11 @@ public final class Componentes {
         b.setOpaque(false);
         b.setRolloverEnabled(true);
         b.setIconTextGap(Medida.ESP_2);
-        int lado = soIcone ? Medida.ESP_2 : Medida.ESP_4;
+        int lado = !soIcone ? Medida.ESP_4 : (altura >= Medida.ALTURA_BOTAO ? Medida.ESP_2 : (altura - Medida.ICONE_PEQ) / 2);
         b.setBorder(BorderFactory.createEmptyBorder(0, lado, 0, lado));
         if (icone != null) {
             // O ícone segue a cor do texto: muda junto no hover/desabilitado.
-            b.setIcon(Icones.queSegueOTexto(icone, soIcone ? Medida.ICONE : Medida.ICONE_PEQ));
+            b.setIcon(Icones.queSegueOTexto(icone, soIcone && altura >= Medida.ALTURA_BOTAO ? Medida.ICONE : Medida.ICONE_PEQ));
         }
         // Cor do texto atualizada por EVENTO de estado — nunca dentro de paint().
         Runnable atualizar = () -> b.setForeground(corTexto(estilo, b.isEnabled(), b.getModel().isRollover()));
@@ -96,6 +100,13 @@ public final class Componentes {
     /** Botão só com ícone (barra de ferramentas). Sempre com tooltip explicando a ação. */
     public static JButton botaoIcone(Icone icone, String dica) {
         JButton b = botao("", icone, Estilo.FANTASMA);
+        b.setToolTipText(dica);
+        return b;
+    }
+
+    /** Botão só com ícone, menor ({@link Medida#ALTURA_BOTAO_PEQUENO}), para linhas compactas. */
+    public static JButton botaoIconePequeno(Icone icone, String dica) {
+        JButton b = botao("", icone, Estilo.FANTASMA, Medida.ALTURA_BOTAO_PEQUENO);
         b.setToolTipText(dica);
         return b;
     }
@@ -468,7 +479,7 @@ public final class Componentes {
             }
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(isThumbRollover() ? Cor.TEXTO_DESATIVADO : Cor.BORDA);
+            g2.setColor(isThumbRollover() ? Cor.TEXTO_DESATIVADO : Tema.translucida(Cor.TEXTO_DESATIVADO, 120));
             g2.fillRoundRect(r.x + 2, r.y + 2, r.width - 4, r.height - 4, r.width - 4, r.width - 4);
             g2.dispose();
         }

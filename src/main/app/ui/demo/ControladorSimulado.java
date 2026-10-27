@@ -7,6 +7,8 @@ import app.ExtratoExecucao;
 import app.FaseSistema;
 import app.FiltroAlertas;
 import app.FormatoMensagens;
+import app.HistoricoExecucao;
+import app.LeituraRegistrada;
 import app.OuvinteTelemetria;
 import app.RegraExibida;
 import domain.Alerta;
@@ -203,6 +205,11 @@ public class ControladorSimulado implements ControladorMonitoramento {
     }
 
     @Override
+    public List<String> sensoresNoHistorico() {
+        return banco.stream().map(Alerta::sensorId).distinct().sorted().toList();
+    }
+
+    @Override
     public List<RegraExibida> regras() {
         return regras;
     }
@@ -231,6 +238,34 @@ public class ControladorSimulado implements ControladorMonitoramento {
         } catch (java.io.IOException ex) {
             throw new java.io.UncheckedIOException(ex);
         }
+    }
+
+    /**
+     * Uma "execução anterior" inventada (3 min, 10 min atrás) para a aba Monitoramento já
+     * abrir com gráficos — o controlador real lê isto do log.
+     */
+    @Override
+    public HistoricoExecucao ultimaExecucao() {
+        dormir(300);
+        List<LeituraRegistrada> leituras = new ArrayList<>();
+        Instant fim = Instant.now().minusSeconds(600);
+        Instant inicio = fim.minusSeconds(180);
+        java.util.Random rnd = new java.util.Random(7);
+        for (TipoSensor tipo : TipoSensor.values()) {
+            RegraExibida r = regras.get(tipo.ordinal());
+            double amplitude = r.maximo() - r.minimo();
+            for (int i = 1; i <= config.sensoresPorTipo(); i++) {
+                String id = String.format("%s-%02d", PREFIXO[tipo.ordinal()], i);
+                double v = r.minimo() + amplitude * 0.55;
+                for (Instant t = inicio; t.isBefore(fim); t = t.plusMillis(config.intervaloMs())) {
+                    v += rnd.nextGaussian() * amplitude * 0.03 + (r.minimo() + amplitude * 0.55 - v) * 0.02;
+                    double lido = Math.round(v * 10) / 10.0;
+                    Severidade sev = lido < r.minimo() || lido > r.maximo() ? r.severidade() : null;
+                    leituras.add(new LeituraRegistrada(new LeituraTelemetria(id, tipo, lido, t), sev));
+                }
+            }
+        }
+        return HistoricoExecucao.de(leituras);
     }
 
     private static void dormir(long ms) {

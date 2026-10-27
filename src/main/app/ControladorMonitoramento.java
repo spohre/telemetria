@@ -33,6 +33,11 @@ public interface ControladorMonitoramento {
     /** Demorado: consulta alertas persistidos (inclusive de execuções anteriores). */
     List<Alerta> buscarAlertas(FiltroAlertas filtro);
 
+    /** Demorado: ids dos sensores que têm alertas no histórico (para o filtro "Sensor"). */
+    default List<String> sensoresNoHistorico() {
+        return List.of();
+    }
+
     /** Regras de anomalia em vigor, para exibição. */
     List<RegraExibida> regras();
 
@@ -43,4 +48,12 @@ public interface ControladorMonitoramento {
 
     /** Demorado: grava o extrato em arquivo e devolve o caminho. */
     String exportarExtrato(ExtratoExecucao extrato);
+
+    /**
+     * Demorado: leituras da última execução encerrada (lidas do log), para os gráficos da
+     * aba Monitoramento ao abrir o programa. Vazio quando não há execução registrada.
+     */
+    default HistoricoExecucao ultimaExecucao() {
+        return HistoricoExecucao.VAZIO;
+    }
 }

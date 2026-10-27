@@ -5,12 +5,14 @@ import app.EstatisticasExecucao;
 import app.ExtratoExecucao;
 import app.FaseSistema;
 import app.FormatoMensagens;
+import app.HistoricoExecucao;
 import app.OuvinteTelemetria;
 import app.ui.tema.Componentes;
 import app.ui.tema.Componentes.Estilo;
 import app.ui.tema.Icones;
 import app.ui.tema.Icones.Icone;
 import app.ui.tema.MensagemErro;
+import app.ui.tema.Tema;
 import domain.Alerta;
 import domain.LeituraTelemetria;
 
@@ -109,6 +111,34 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
         parar.addActionListener(e -> aoClicarParar());
         controlador.registrarOuvinte(this);
         aplicarFase(controlador.fase());
+        carregarUltimaExecucao();
+    }
+
+    /** Ler o log pode demorar (arquivo grande) → SwingWorker; os gráficos mostram a última execução. */
+    private void carregarUltimaExecucao() {
+        if (controlador.fase() != FaseSistema.PARADO) {
+            return;
+        }
+        new SwingWorker<HistoricoExecucao, Void>() {
+            @Override
+            protected HistoricoExecucao doInBackground() {
+                return controlador.ultimaExecucao();
+            }
+
+            @Override
+            protected void done() {
+                if (controlador.fase() != FaseSistema.PARADO || painelMonitoramento.temDados()) {
+                    return;           // o usuário já iniciou uma execução nova enquanto o log era lido
+                }
+                try {
+                    painelMonitoramento.carregarHistorico(get());
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException ex) {
+                    painelMonitoramento.avisarHistoricoIndisponivel("arquivo " + CAMINHO_LOG + " ilegível");
+                }
+            }
+        }.execute();
     }
 
     /** Monta toda a interface (também usado para gerar as prévias sem abrir janela). */
@@ -239,6 +269,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
         if (controlador.fase() == FaseSistema.PAUSADO) {
             controlador.retomar();
         } else {
+            painelMonitoramento.novaExecucao();      // gráficos passam a mostrar só esta execução
             controlador.iniciar();
         }
         aplicarFase(controlador.fase());
@@ -339,6 +370,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
             }
         }
         painelRegras.aoMudarFase(fase);
+        painelMonitoramento.aoMudarFase(fase);
     }
 
     /** EDT. Público para pré-visualização. */
@@ -379,7 +411,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
                     g2.setColor(Cor.PRIMARIA);
                     g2.fillRect(Medida.ESP_3, getHeight() - 2, getWidth() - Medida.ESP_3 * 2, 2);
                 } else if (getModel().isRollover()) {
-                    g2.setColor(Cor.SUPERFICIE);
+                    g2.setColor(Tema.translucida(Cor.SUPERFICIE_ELEVADA, 160));
                     g2.fillRoundRect(0, 0, getWidth(), getHeight() - 3, Medida.RAIO * 2, Medida.RAIO * 2);
                 }
                 g2.dispose();
