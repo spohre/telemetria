@@ -63,25 +63,57 @@ public class ControladorSimulado implements ControladorMonitoramento {
     private ScheduledExecutorService sensores;
     private ExecutorService consumidores;
     private BlockingQueue<LeituraTelemetria> fila;
+    // controle individual (simulado): tarefa agendada por sensor e os pausados
+    private final Map<String, java.util.concurrent.ScheduledFuture<?>> tarefas = new java.util.concurrent.ConcurrentSkipListMap<>();
+    private final Map<String, TipoSensor> tipos = new ConcurrentHashMap<>();
+    private final java.util.Set<String> pausados = ConcurrentHashMap.newKeySet();
 
     @Override
     public synchronized void iniciar() {
+        if (fase == FaseSistema.PARADO) {
+            iniciarExecucao(id -> true);
+            return;
+        }
+        List<String> desligados = tipos.keySet().stream().filter(this::desligado).sorted().toList();
+        if (fase != FaseSistema.EXECUTANDO || desligados.isEmpty()) {
+            throw new IllegalStateException("O sistema já está em execução");
+        }
+        desligados.forEach(id -> {
+            pausados.remove(id);
+            agendar(id);
+        });
+    }
+
+    private boolean desligado(String id) {
+        var t = tarefas.get(id);
+        return t == null || t.isDone();
+    }
+
+    private Map<String, TipoSensor> sensoresDaConfiguracao() {
+        Map<String, TipoSensor> r = new java.util.TreeMap<>();
+        for (TipoSensor tipo : TipoSensor.values()) {
+            for (int i = 1; i <= config.sensoresPorTipo(); i++) {
+                r.put(String.format("%s-%02d", PREFIXO[tipo.ordinal()], i), tipo);
+            }
+        }
+        return r;
+    }
+
+    private void iniciarExecucao(java.util.function.Predicate<String> ligar) {
         fila = new LinkedBlockingQueue<>(CAPACIDADE);
         produzidas.set(0);
         processadas.set(0);
         contagem.clear();
+        tarefas.clear();
+        tipos.clear();
+        pausados.clear();
         inicio = Instant.now();
         int total = config.sensoresPorTipo() * TipoSensor.values().length;
         sensores = Executors.newScheduledThreadPool(total + 1);
         consumidores = Executors.newFixedThreadPool(config.consumidores());
 
-        for (TipoSensor tipo : TipoSensor.values()) {
-            for (int i = 1; i <= config.sensoresPorTipo(); i++) {
-                String id = String.format("%s-%02d", PREFIXO[tipo.ordinal()], i);
-                sensores.scheduleAtFixedRate(() -> produzir(id, tipo),
-                        ThreadLocalRandom.current().nextInt(50), config.intervaloMs(), TimeUnit.MILLISECONDS);
-            }
-        }
+        tipos.putAll(sensoresDaConfiguracao());
+        tipos.keySet().stream().filter(ligar).forEach(this::agendar);
         sensores.scheduleAtFixedRate(this::publicarEstatisticas, 0, 1, TimeUnit.SECONDS);
         for (int i = 0; i < config.consumidores(); i++) {
             consumidores.submit(this::consumir);
@@ -92,8 +124,14 @@ public class ControladorSimulado implements ControladorMonitoramento {
                         + config.intervaloMs() + " ms)"));
     }
 
+    private void agendar(String id) {
+        TipoSensor tipo = tipos.get(id);
+        tarefas.put(id, sensores.scheduleAtFixedRate(() -> produzir(id, tipo),
+                ThreadLocalRandom.current().nextInt(50), config.intervaloMs(), TimeUnit.MILLISECONDS));
+    }
+
     private void produzir(String id, TipoSensor tipo) {
-        if (fase != FaseSistema.EXECUTANDO) {
+        if (fase != FaseSistema.EXECUTANDO || pausados.contains(id)) {
             return;
         }
         RegraExibida r = regras.get(tipo.ordinal());
@@ -179,6 +217,75 @@ public class ControladorSimulado implements ControladorMonitoramento {
     }
 
     @Override
+    public synchronized void iniciarSensor(String id) {
+        if (fase == FaseSistema.PARADO) {
+            if (!sensoresDaConfiguracao().containsKey(id)) {
+                throw new IllegalArgumentException("Sensor desconhecido: " + id);
+            }
+            iniciarExecucao(id::equals);
+            return;
+        }
+        tarefa(id);
+        if (!desligado(id)) {
+            throw new IllegalStateException("O sensor " + id + " já está ligado");
+        }
+        pausados.remove(id);
+        agendar(id);
+    }
+
+    @Override
+    public synchronized void pausarSensor(String id) {
+        ligado(id);
+        pausados.add(id);
+    }
+
+    @Override
+    public synchronized void retomarSensor(String id) {
+        ligado(id);
+        pausados.remove(id);
+    }
+
+    @Override
+    public synchronized java.util.Optional<ExtratoExecucao> desligarSensor(String id) {
+        ligado(id).cancel(false);
+        dormir(150);                      // simula a espera pelo fim da thread (prova que a EDT não trava)
+        boolean algumLigado = tipos.keySet().stream().anyMatch(s -> !desligado(s));
+        return algumLigado ? java.util.Optional.empty() : java.util.Optional.of(parar());
+    }
+
+    @Override
+    public Map<String, TipoSensor> sensoresDisponiveis() {
+        return fase == FaseSistema.PARADO ? sensoresDaConfiguracao() : new java.util.TreeMap<>(tipos);
+    }
+
+    @Override
+    public Map<String, app.EstadoSensor> estadosSensores() {
+        Map<String, app.EstadoSensor> r = new java.util.LinkedHashMap<>();
+        sensoresDisponiveis().keySet().forEach(id -> r.put(id, fase == FaseSistema.PARADO || desligado(id)
+                ? app.EstadoSensor.DESLIGADO
+                : (pausados.contains(id) ? app.EstadoSensor.PAUSADO : app.EstadoSensor.EXECUTANDO)));
+        return r;
+    }
+
+    private java.util.concurrent.ScheduledFuture<?> tarefa(String id) {
+        if (fase != FaseSistema.EXECUTANDO) {
+            throw new IllegalStateException("Inicie (ou retome) o sistema antes de controlar um sensor");
+        }
+        if (!tipos.containsKey(id)) {
+            throw new IllegalArgumentException("Sensor desconhecido: " + id);
+        }
+        return tarefas.get(id);
+    }
+
+    private java.util.concurrent.ScheduledFuture<?> ligado(String id) {
+        var t = tarefa(id);
+        if (t == null || t.isDone()) {
+            throw new IllegalStateException("O sensor " + id + " está desligado");
+        }
+        return t;
+    }
+
+    @Override
     public FaseSistema fase() {
         return fase;
     }
@@ -202,11 +309,6 @@ public class ControladorSimulado implements ControladorMonitoramento {
             }
         }
         return r;
-    }
-
-    @Override
-    public List<String> sensoresNoHistorico() {
-        return banco.stream().map(Alerta::sensorId).distinct().sorted().toList();
     }
 
     @Override

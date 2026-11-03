@@ -26,6 +26,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
@@ -91,9 +93,15 @@ public class ControladorTelemetria implements ControladorMonitoramento {
     private volatile Execucao execucao;
 
     /** Tudo o que pertence a uma execução (de Iniciar a Parar). */
+    /**
+     * @param sensores        todos os sensores da execução, por id (fixo depois de criado)
+     * @param threadsSensores thread ATUAL de cada sensor. Muda quando um sensor é desligado e
+     *                        ligado de novo (nova thread); escrito só sob o lock deste controlador
+     *                        e lido também pelas estatísticas, por isso ConcurrentHashMap.
+     */
     private record Execucao(Instant inicio, ConfiguracaoSimulacao config, FilaDeLeituras fila,
-                            ContadoresExecucao contadores, LogArquivo log, List<Sensor> sensores,
-                            List<Thread> threadsSensores, List<Thread> threadsConsumidores,
+                            ContadoresExecucao contadores, LogArquivo log, Map<String, Sensor> sensores,
+                            Map<String, Thread> threadsSensores, List<Thread> threadsConsumidores,
                             ScheduledExecutorService agendador) {
     }
 
@@ -123,11 +131,40 @@ public class ControladorTelemetria implements ControladorMonitoramento {
 
     // ================================================================== ciclo de vida
 
+    /**
+     * Liga todos os sensores. Com o sistema PARADO, sobe a execução inteira (fila, consumidores,
+     * log, estatísticas). Já EM EXECUÇÃO (ex.: começou por um sensor só), liga os que estão
+     * desligados.
+     *
+     * @throws IllegalStateException se o sistema está pausado ou se todos já estão ligados
+     */
     @Override
     public synchronized void iniciar() {
-        if (fase != FaseSistema.PARADO) {
-            throw new IllegalStateException("O sistema já está em execução");
+        if (fase == FaseSistema.PARADO) {
+            iniciarExecucao(id -> true);
+            return;
         }
+        Execucao ex = execucao;
+        List<String> desligados = fase == FaseSistema.EXECUTANDO && ex != null
+                ? ex.sensores().keySet().stream().filter(id -> !ex.threadsSensores().get(id).isAlive()).toList()
+                : List.of();
+        if (desligados.isEmpty()) {
+            throw new IllegalStateException(fase == FaseSistema.PAUSADO
+                    ? "O sistema está pausado: clique em Retomar" : "O sistema já está em execução");
+        }
+        desligados.forEach(id -> ligarThread(ex, id));
+        imprimir(FormatoMensagens.Nivel.INFO, "sistema", desligados.size() + " sensor(es) ligado(s): "
+                + String.join(", ", desligados));
+    }
+
+    /**
+     * Sobe uma execução: cria fila, consumidores, log, estatísticas e TODOS os sensores da
+     * configuração, mas só inicia a thread dos sensores aceitos por {@code ligar}. Os demais
+     * ficam com uma thread ainda não iniciada (estado DESLIGADO) e podem ser ligados depois.
+     *
+     * @return {@code false} se o log não pôde ser aberto (o motivo já foi avisado ao ouvinte)
+     */
+    private boolean iniciarExecucao(java.util.function.Predicate<String> ligar) {
         ConfiguracaoSimulacao cfg = configuracao;
         LogArquivo log;
         try {
@@ -135,7 +172,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         } catch (UncheckedIOException e) {
             difusor.aoOcorrerFalha("Não foi possível abrir o arquivo de log " + raiz.resolve(CAMINHO_LOG) + ".",
                     "Verifique se a pasta data/ existe e se o arquivo não está aberto em outro programa.", e);
-            return;
+            return false;
         }
 
         FilaDeLeituras fila = new FilaDeLeituras(capacidadeFila);
@@ -147,17 +184,14 @@ public class ControladorTelemetria implements ControladorMonitoramento {
             consumidores.add(new Thread(p, "consumidor-" + i));
         }
 
-        List<Sensor> sensores = new ArrayList<>();
-        List<Thread> threadsSensores = new ArrayList<>();
-        for (TipoSensor tipo : TipoSensor.values()) {
-            for (int n = 1; n <= cfg.sensoresPorTipo(); n++) {
-                String id = String.format("%s-%02d", PREFIXOS.get(tipo), n);
-                Sensor s = new Sensor(id, tipo, cfg.intervaloMs(),
-                        new GeradorPasseioAleatorio(analisador.regraDo(tipo), new Random()), fila, relogio);
-                sensores.add(s);
-                threadsSensores.add(new Thread(s, "sensor-" + id));
-            }
-        }
+        Map<String, Sensor> sensores = new TreeMap<>();                    // ordem de id
+        Map<String, Thread> threadsSensores = new ConcurrentHashMap<>();
+        sensoresDaConfiguracao(cfg).forEach((id, tipo) -> {
+            Sensor s = new Sensor(id, tipo, cfg.intervaloMs(),
+                    new GeradorPasseioAleatorio(analisador.regraDo(tipo), new Random()), fila, relogio);
+            sensores.put(id, s);
+            threadsSensores.put(id, new Thread(s, "sensor-" + id));
+        });
 
         ScheduledExecutorService agendador = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "estatisticas");
@@ -165,16 +199,40 @@ public class ControladorTelemetria implements ControladorMonitoramento {
             return t;
         });
 
-        Execucao ex = new Execucao(relogio.instant(), cfg, fila, contadores, log, List.copyOf(sensores),
-                List.copyOf(threadsSensores), List.copyOf(consumidores), agendador);
+        Execucao ex = new Execucao(relogio.instant(), cfg, fila, contadores, log,
+                java.util.Collections.unmodifiableMap(sensores), threadsSensores, List.copyOf(consumidores), agendador);
         execucao = ex;
 
-        imprimir(FormatoMensagens.Nivel.INFO, "sistema", sensores.size() + " sensores e " + cfg.consumidores()
+        List<String> ligados = sensores.keySet().stream().filter(ligar).toList();
+        String quantos = ligados.size() == sensores.size() ? sensores.size() + " sensores"
+                : ligados.size() + " de " + sensores.size() + " sensores";
+        imprimir(FormatoMensagens.Nivel.INFO, "sistema", quantos + " e " + cfg.consumidores()
                 + " consumidor(es) iniciados (intervalo " + cfg.intervaloMs() + " ms)");
         consumidores.forEach(Thread::start);       // consumidores primeiro: já esperam na fila
-        threadsSensores.forEach(Thread::start);
+        ligados.forEach(id -> threadsSensores.get(id).start());
         agendador.scheduleAtFixedRate(this::publicarEstatisticas, 1, 1, TimeUnit.SECONDS);
         fase = FaseSistema.EXECUTANDO;
+        return true;
+    }
+
+    /** Ids e tipos dos sensores que uma configuração cria (TEMP-01, TEMP-02…, VEL-01…), em ordem de id. */
+    static Map<String, TipoSensor> sensoresDaConfiguracao(ConfiguracaoSimulacao cfg) {
+        Map<String, TipoSensor> r = new TreeMap<>();
+        for (TipoSensor tipo : TipoSensor.values()) {
+            for (int n = 1; n <= cfg.sensoresPorTipo(); n++) {
+                r.put(String.format("%s-%02d", PREFIXOS.get(tipo), n), tipo);
+            }
+        }
+        return r;
+    }
+
+    /** Thread nova para o sensor (a anterior, se houve, já terminou ou nunca começou). Só sob o lock deste objeto. */
+    private void ligarThread(Execucao ex, String sensorId) {
+        Sensor s = ex.sensores().get(sensorId);
+        s.retomar();                       // se foi desligado durante uma pausa, volta produzindo
+        Thread t = new Thread(s, "sensor-" + sensorId);
+        ex.threadsSensores().put(sensorId, t);
+        t.start();
     }
 
     @Override
@@ -182,7 +240,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         if (fase != FaseSistema.EXECUTANDO) {
             return;
         }
-        execucao.sensores().forEach(Sensor::pausar);
+        execucao.sensores().values().forEach(Sensor::pausar);
         fase = FaseSistema.PAUSADO;
         imprimir(FormatoMensagens.Nivel.INFO, "sistema", "Sensores pausados");
     }
@@ -192,7 +250,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         if (fase != FaseSistema.PAUSADO) {
             return;
         }
-        execucao.sensores().forEach(Sensor::retomar);
+        execucao.sensores().values().forEach(Sensor::retomar);
         fase = FaseSistema.EXECUTANDO;
         imprimir(FormatoMensagens.Nivel.INFO, "sistema", "Sensores retomados");
     }
@@ -213,8 +271,8 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         String problema = null;
         try {
             // 1. sensores: ninguém mais publica
-            ex.threadsSensores().forEach(Thread::interrupt);
-            for (Thread t : ex.threadsSensores()) {
+            ex.threadsSensores().values().forEach(Thread::interrupt);
+            for (Thread t : ex.threadsSensores().values()) {
                 problema = primeiroProblema(problema, aguardar(t, ESPERA_SENSOR_MS));
             }
             // 2. uma pílula por consumidor VIVO, atrás de todas as leituras; eles drenam a fila e saem
@@ -281,6 +339,144 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         ouvintes.add(Objects.requireNonNull(ouvinte, "ouvinte"));
     }
 
+    // ================================================================== controle de um sensor
+
+    /**
+     * Liga um sensor desligado numa thread nova ({@code sensor-<ID>}). Com o sistema PARADO,
+     * primeiro sobe a execução (fila, consumidores, log) com SÓ este sensor ligado. O objeto {@link Sensor} é o
+     * mesmo, então a sequência continua de onde parou (sem repetir nem pular). Seguro porque a
+     * thread anterior já terminou: {@link #desligarSensor} espera com {@code join}, e
+     * {@code join} → {@code start} garante que a thread nova enxerga o estado deixado pela antiga.
+     */
+    @Override
+    public synchronized void iniciarSensor(String sensorId) {
+        if (fase == FaseSistema.PARADO) {
+            // sistema todo parado: sobe a execução (fila, consumidores, log) só com este sensor
+            if (!sensoresDaConfiguracao(configuracao).containsKey(sensorId)) {
+                throw new IllegalArgumentException("Sensor desconhecido: " + sensorId);
+            }
+            if (iniciarExecucao(sensorId::equals)) {
+                imprimir(FormatoMensagens.Nivel.INFO, sensorId, "Sensor ligado (os demais continuam desligados)");
+            }
+            return;
+        }
+        Execucao ex = execucaoEmAndamento();
+        sensor(ex, sensorId);
+        if (ex.threadsSensores().get(sensorId).isAlive()) {
+            throw new IllegalStateException("O sensor " + sensorId + " já está ligado");
+        }
+        ligarThread(ex, sensorId);
+        imprimir(FormatoMensagens.Nivel.INFO, sensorId, "Sensor ligado");
+    }
+
+    @Override
+    public synchronized void pausarSensor(String sensorId) {
+        Sensor s = sensorLigado(sensorId);
+        s.pausar();
+        imprimir(FormatoMensagens.Nivel.INFO, sensorId, "Sensor pausado");
+    }
+
+    @Override
+    public synchronized void retomarSensor(String sensorId) {
+        Sensor s = sensorLigado(sensorId);
+        s.retomar();
+        imprimir(FormatoMensagens.Nivel.INFO, sensorId, "Sensor retomado");
+    }
+
+    /**
+     * Interrompe a thread do sensor e espera ela terminar (no máximo {@code ESPERA_SENSOR_MS}).
+     * Se nenhum outro sensor continua ligado, encerra o sistema como {@link #parar()}.
+     * Segurar o lock deste controlador durante o {@code join} não causa deadlock: a thread do
+     * sensor nunca usa esse lock. A leitura que estava sendo publicada no momento da interrupção
+     * não é contada (a sequência só avança depois do {@code put}), então nada se perde.
+     */
+    @Override
+    public synchronized Optional<ExtratoExecucao> desligarSensor(String sensorId) {
+        Execucao ex = execucaoEmAndamento();
+        sensor(ex, sensorId);
+        Thread t = ex.threadsSensores().get(sensorId);
+        if (!t.isAlive()) {
+            throw new IllegalStateException("O sensor " + sensorId + " já está desligado");
+        }
+        t.interrupt();
+        try {
+            String problema = aguardar(t, ESPERA_SENSOR_MS);
+            if (problema != null) {
+                throw new IllegalStateException(problema);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Desligamento do sensor " + sensorId + " interrompido", e);
+        }
+        imprimir(FormatoMensagens.Nivel.INFO, sensorId, "Sensor desligado");
+        if (ex.threadsSensores().values().stream().noneMatch(Thread::isAlive)) {
+            // nenhum sensor ligado: o mesmo que o Parar geral (drena a fila, fecha o log, extrato)
+            imprimir(FormatoMensagens.Nivel.INFO, "sistema", "Último sensor desligado: encerrando o sistema");
+            return Optional.of(parar());       // mesmo lock (reentrante): nada muda entre a checagem e o parar
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Sensores disponíveis: os da execução em andamento ou, com o sistema parado, os que a
+     * configuração atual cria. Sem lock (só lê campos volatile). Pode rodar na EDT.
+     */
+    @Override
+    public Map<String, TipoSensor> sensoresDisponiveis() {
+        Execucao ex = execucao;
+        if (fase == FaseSistema.PARADO || ex == null) {
+            return sensoresDaConfiguracao(configuracao);
+        }
+        Map<String, TipoSensor> r = new java.util.LinkedHashMap<>();
+        ex.sensores().forEach((id, s) -> r.put(id, s.tipo()));
+        return r;
+    }
+
+    /** Sem lock de propósito: só lê (volatile, isAlive e o monitor de pausa do sensor). Pode rodar na EDT. */
+    @Override
+    public Map<String, EstadoSensor> estadosSensores() {
+        Execucao ex = execucao;
+        Map<String, EstadoSensor> estados = new java.util.LinkedHashMap<>();
+        if (fase == FaseSistema.PARADO || ex == null) {
+            sensoresDaConfiguracao(configuracao).keySet().forEach(id -> estados.put(id, EstadoSensor.DESLIGADO));
+            return estados;
+        }
+        ex.sensores().forEach((id, s) -> {
+            Thread t = ex.threadsSensores().get(id);
+            estados.put(id, t == null || !t.isAlive() ? EstadoSensor.DESLIGADO
+                    : (s.estaPausado() ? EstadoSensor.PAUSADO : EstadoSensor.EXECUTANDO));
+        });
+        return estados;
+    }
+
+    /** Controle individual só faz sentido com fila e consumidores rodando e o sistema não pausado. */
+    private Execucao execucaoEmAndamento() {
+        Execucao ex = execucao;
+        if (fase != FaseSistema.EXECUTANDO || ex == null) {
+            throw new IllegalStateException(fase == FaseSistema.PAUSADO
+                    ? "O sistema está pausado: clique em Retomar antes de controlar um sensor"
+                    : "O sensor está desligado: clique em Iniciar no cartão dele");
+        }
+        return ex;
+    }
+
+    private static Sensor sensor(Execucao ex, String sensorId) {
+        Sensor s = ex.sensores().get(sensorId);
+        if (s == null) {
+            throw new IllegalArgumentException("Sensor desconhecido: " + sensorId);
+        }
+        return s;
+    }
+
+    private Sensor sensorLigado(String sensorId) {
+        Execucao ex = execucaoEmAndamento();
+        Sensor s = sensor(ex, sensorId);
+        if (!ex.threadsSensores().get(sensorId).isAlive()) {
+            throw new IllegalStateException("O sensor " + sensorId + " está desligado: clique em Iniciar no cartão dele");
+        }
+        return s;
+    }
+
     // ================================================================== estatísticas
 
     private void publicarEstatisticas() {
@@ -302,7 +498,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
 
     private EstatisticasExecucao estatisticas(Execucao ex) {
         int vivas = 0;
-        for (Thread t : ex.threadsSensores()) {
+        for (Thread t : ex.threadsSensores().values()) {
             vivas += t.isAlive() ? 1 : 0;
         }
         for (Thread t : ex.threadsConsumidores()) {
@@ -327,11 +523,6 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         Instant desde = filtro.periodo() == null ? null : relogio.instant().minus(filtro.periodo());
         String sensor = filtro.sensorId() == null || filtro.sensorId().isBlank() ? null : filtro.sensorId().trim();
         return repositorio.buscar(sensor, filtro.tipo(), filtro.severidade(), desde);
-    }
-
-    @Override
-    public List<String> sensoresNoHistorico() {
-        return repositorio.sensoresComAlertas();
     }
 
     /**

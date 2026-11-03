@@ -17,7 +17,7 @@ import java.util.Set;
 
 /**
  * ÚNICA fonte de cores, fontes e medidas da interface (regra 2 da skill designer-swing).
- * Visual claro de painel técnico: fundo branco, dados em monoespaçada, cor só para estado.
+ * Visual cinza-claro com destaque laranja, dados em monoespaçada, cor só para estado.
  */
 public final class Tema {
 
@@ -29,21 +29,25 @@ public final class Tema {
         private Cor() {
         }
 
-        // Tema claro: fundo branco, cartões brancos separados por contorno, cor só para estado.
-        public static final Color FUNDO = hex(0xFFFFFF);
-        public static final Color SUPERFICIE = hex(0xFFFFFF);
-        public static final Color SUPERFICIE_ELEVADA = hex(0xF2F4F7);
-        public static final Color BORDA = hex(0xDDE2E8);
+        // Tema cinza-claro: fundo cinza, painéis um tom mais claro, destaque laranja,
+        // cor de severidade só para estado.
+        public static final Color FUNDO = hex(0xE4E6EA);
+        public static final Color SUPERFICIE = hex(0xF1F2F4);
+        public static final Color SUPERFICIE_ELEVADA = hex(0xE6E8EC);
+        public static final Color BORDA = hex(0xCDD2D8);
 
         public static final Color TEXTO = hex(0x17202B);
-        public static final Color TEXTO_SECUNDARIO = hex(0x5B6876);
-        public static final Color TEXTO_DESATIVADO = hex(0xA4AEB9);
+        public static final Color TEXTO_SECUNDARIO = hex(0x535F6C);
+        public static final Color TEXTO_DESATIVADO = hex(0x9AA3AD);
 
-        public static final Color PRIMARIA = hex(0xDE0202);          // cor de destaque (vermelho)
-        public static final Color PRIMARIA_HOVER = hex(0xB80202);
-        public static final Color SOBRE_PRIMARIA = hex(0xFFFFFF);
+        public static final Color PRIMARIA = hex(0xF07F1A);           // destaque laranja
+        public static final Color PRIMARIA_HOVER = hex(0xF79A45);
+        /** Texto sobre a primária: escuro, para contraste sobre o laranja. */
+        public static final Color SOBRE_PRIMARIA = hex(0x1F1300);
+        /** Laranja mais escuro para TEXTO destacado sobre o cinza (o laranja puro tem pouco contraste). */
+        public static final Color PRIMARIA_TEXTO = hex(0xA84A06);
 
-        // Tons escurecidos para manter contraste (≥ 4,5:1) sobre o branco.
+        // Tons de severidade escurecidos para manter contraste (≥ 4,5:1) sobre o cinza claro.
         public static final Color NORMAL = hex(0x1A7F37);
         public static final Color SEV_BAIXA = hex(0x0969DA);
         public static final Color SEV_MEDIA = hex(0x9A6700);
@@ -52,12 +56,12 @@ public final class Tema {
         public static final Color PERIGO = SEV_CRITICA;
 
         /**
-         * Linha do gráfico de histórico de cada sensor. Neutra (grafite) de propósito: o destaque
-         * é vermelho, igual aos limites e aos alertas, e a leitura precisa se distinguir deles.
+         * Linha do gráfico de histórico de um sensor. Neutra (grafite) de propósito: o laranja de
+         * destaque e o vermelho dos limites/alertas ficariam confundidos com a leitura.
          */
         public static final Color GRAFICO_LINHA = hex(0x334155);
         /** Linhas de grade (marcação de valores e de tempo) do gráfico. */
-        public static final Color GRAFICO_GRADE = hex(0xEDF0F3);
+        public static final Color GRAFICO_GRADE = hex(0xDFE3E8);
         /** Linhas pontilhadas de mínimo/máximo aceitos antes do alerta. */
         public static final Color GRAFICO_LIMITE = SEV_CRITICA;
 
@@ -148,7 +152,7 @@ public final class Tema {
         public static final int ESP_6 = 24;
         public static final int RAIO = 8;
         public static final int ALTURA_BOTAO = 34;
-        /** Botão só de ícone dentro de linhas compactas (ex.: expandir o gráfico do sensor). */
+        /** Botões dentro de um cartão de sensor (Iniciar / Pausar / Desligar daquele sensor). */
         public static final int ALTURA_BOTAO_PEQUENO = 24;
         public static final int ALTURA_LINHA_TABELA = 28;
         public static final int ICONE_PEQ = 16;
@@ -160,18 +164,8 @@ public final class Tema {
         public static final int ALTURA_MINIMA = 680;
         /** Linhas mantidas na tabela de leituras ao vivo. */
         public static final int MAX_LINHAS_AO_VIVO = 200;
-        /** Altura da linha de um sensor (gráfico compacto) na aba Monitoramento. */
-        public static final int ALTURA_SENSOR = 100 + 2 * ESP_3;   // gráfico compacto de 100 px + margens
-        /** Altura mínima da área das tabelas (leituras ao vivo e alertas) ao arrastar o divisor. */
-        public static final int ALTURA_MINIMA_TABELAS = 176;
-        /**
-         * Linha expandida: ocupa a área visível da lista de sensores, entre estes limites
-         * (arrastar o divisor para cima dá ainda mais altura ao gráfico).
-         */
-        public static final int ALTURA_SENSOR_EXPANDIDO = 360;
-        public static final int ALTURA_SENSOR_EXPANDIDO_MAX = 720;
-        /** Largura da coluna de informações à direita do gráfico. */
-        public static final int LARGURA_INFO_SENSOR = 268;
+        /** Altura da área "Ver gráfico" (cabeçalho + gráfico) na aba Monitoramento. */
+        public static final int ALTURA_AREA_GRAFICO = 200;
         /** Pontos guardados por sensor antes de o gráfico reduzir a resolução (alertas nunca são descartados). */
         public static final int MAX_PONTOS_GRAFICO = 20_000;
         /** Traço da linha de leitura e tracejado das linhas de limite (px). */

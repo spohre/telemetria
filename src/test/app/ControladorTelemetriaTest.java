@@ -262,6 +262,164 @@ class ControladorTelemetriaTest {
         assertTrue(conteudo.contains("jdbc:teste"));
     }
 
+    // ------------------------------------------------------------------ controle de um sensor
+
+    private long processadasDo(String sensorId) {
+        return ouvinte.processadas.stream().filter(p -> p.leitura().sensorId().equals(sensorId)).count();
+    }
+
+    @Test
+    void desligarUmSensorParaSoEleEOsOutrosContinuam() throws Exception {
+        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        controlador.iniciar();
+        esperarAte(() -> processadasDo("TEMP-01") >= 5, "TEMP-01 produzir");
+
+        controlador.desligarSensor("TEMP-01");
+
+        assertEquals(EstadoSensor.DESLIGADO, controlador.estadosSensores().get("TEMP-01"));
+        assertEquals(EstadoSensor.EXECUTANDO, controlador.estadosSensores().get("VEL-01"));
+        assertFalse(threadsVivas().contains("sensor-TEMP-01"), "a thread do sensor terminou");
+        Thread.sleep(50);                                    // o que já estava na fila termina de passar
+        long temp = processadasDo("TEMP-01");
+        long vel = processadasDo("VEL-01");
+        Thread.sleep(150);
+        assertEquals(temp, processadasDo("TEMP-01"), "desligado não produz mais");
+        assertTrue(processadasDo("VEL-01") > vel, "os outros sensores continuam");
+    }
+
+    @Test
+    void religarUmSensorContinuaASequenciaSemRepetirNemPerder() throws Exception {
+        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        controlador.iniciar();
+        esperarAte(() -> processadasDo("PRES-01") >= 5, "PRES-01 produzir");
+        controlador.desligarSensor("PRES-01");
+        controlador.iniciarSensor("PRES-01");
+        assertEquals(EstadoSensor.EXECUTANDO, controlador.estadosSensores().get("PRES-01"));
+        long antes = processadasDo("PRES-01");
+        esperarAte(() -> processadasDo("PRES-01") >= antes + 5, "PRES-01 voltar a produzir");
+
+        ExtratoExecucao e = controlador.parar();
+
+        List<Long> seq = ouvinte.processadas.stream().map(Dubles.OuvinteFalso.Processada::leitura)
+                .filter(l -> l.sensorId().equals("PRES-01")).map(domain.LeituraTelemetria::sequencia)
+                .sorted().toList();
+        for (int i = 0; i < seq.size(); i++) {
+            assertEquals(i + 1L, seq.get(i).longValue(), "sequência 1, 2, 3... sem buraco nem repetição");
+        }
+        assertEquals(0, e.leiturasPerdidas());
+        assertEquals(EstadoSensor.DESLIGADO, controlador.estadosSensores().get("PRES-01"), "parado = todos desligados");
+    }
+
+    @Test
+    void pausarUmSensorCongelaSoEleERetomarContinua() throws Exception {
+        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        controlador.iniciar();
+        esperarAte(() -> processadasDo("UMID-01") >= 3, "UMID-01 produzir");
+
+        controlador.pausarSensor("UMID-01");
+        assertEquals(EstadoSensor.PAUSADO, controlador.estadosSensores().get("UMID-01"));
+        assertTrue(threadsVivas().contains("sensor-UMID-01"), "pausado: a thread continua viva");
+        Thread.sleep(60);
+        long congelado = processadasDo("UMID-01");
+        long temp = processadasDo("TEMP-01");
+        Thread.sleep(150);
+        assertEquals(congelado, processadasDo("UMID-01"));
+        assertTrue(processadasDo("TEMP-01") > temp);
+
+        controlador.retomarSensor("UMID-01");
+        esperarAte(() -> processadasDo("UMID-01") > congelado + 3, "UMID-01 voltar a produzir");
+    }
+
+    @Test
+    void sensoresFicamDisponiveisEDesligadosAntesDeQualquerExecucao() {
+        novo(new ConfiguracaoSimulacao(2, 50, 1));
+        assertEquals(List.of("PRES-01", "PRES-02", "TEMP-01", "TEMP-02", "UMID-01", "UMID-02", "VEL-01", "VEL-02"),
+                List.copyOf(controlador.sensoresDisponiveis().keySet()), "um por tipo × 2, em ordem de id");
+        assertEquals(TipoSensor.VELOCIDADE, controlador.sensoresDisponiveis().get("VEL-02"));
+        assertTrue(controlador.estadosSensores().values().stream().allMatch(e -> e == EstadoSensor.DESLIGADO));
+        assertThrows(IllegalArgumentException.class, () -> controlador.iniciarSensor("XYZ-99"));
+        assertEquals(FaseSistema.PARADO, controlador.fase(), "id inválido não inicia nada");
+    }
+
+    @Test
+    void ligarUmSensorComTudoParadoIniciaOSistemaSoComEle() throws Exception {
+        novo(new ConfiguracaoSimulacao(1, 10, 1));
+
+        controlador.iniciarSensor("VEL-01");
+
+        assertEquals(FaseSistema.EXECUTANDO, controlador.fase());
+        assertEquals(EstadoSensor.EXECUTANDO, controlador.estadosSensores().get("VEL-01"));
+        assertEquals(EstadoSensor.DESLIGADO, controlador.estadosSensores().get("TEMP-01"));
+        assertEquals(2, controlador.estatisticas().threadsAtivas(), "1 sensor + 1 consumidor");
+        esperarAte(() -> processadasDo("VEL-01") >= 5, "VEL-01 produzir");
+        assertEquals(0, processadasDo("TEMP-01"), "os outros continuam desligados");
+
+        controlador.iniciar();                                    // Iniciar geral: liga os que faltam
+        assertTrue(controlador.estadosSensores().values().stream().allMatch(e -> e == EstadoSensor.EXECUTANDO));
+        assertThrows(IllegalStateException.class, () -> controlador.iniciar(), "todos já ligados");
+        esperarAte(() -> processadasDo("TEMP-01") >= 3, "TEMP-01 produzir");
+
+        ExtratoExecucao e = controlador.parar();
+        assertEquals(0, e.leiturasPerdidas());
+        assertTrue(controlador.estadosSensores().values().stream().allMatch(s -> s == EstadoSensor.DESLIGADO));
+    }
+
+    @Test
+    void controleIndividualRespeitaPausaGeralEIdValido() throws Exception {
+        novo(new ConfiguracaoSimulacao(1, 50, 1));
+        assertThrows(IllegalStateException.class, () -> controlador.pausarSensor("TEMP-01"), "parado: nada a pausar");
+
+        controlador.iniciar();
+        assertThrows(IllegalArgumentException.class, () -> controlador.desligarSensor("XYZ-99"));
+        assertThrows(IllegalStateException.class, () -> controlador.iniciarSensor("TEMP-01"), "já ligado");
+        controlador.desligarSensor("TEMP-01");
+        assertThrows(IllegalStateException.class, () -> controlador.pausarSensor("TEMP-01"), "desligado");
+
+        controlador.pausar();                                  // pausa geral bloqueia o controle individual
+        assertThrows(IllegalStateException.class, () -> controlador.iniciarSensor("TEMP-01"));
+        controlador.retomar();
+        controlador.iniciarSensor("TEMP-01");
+        assertEquals(4, controlador.estadosSensores().size());
+        assertEquals(5, controlador.estatisticas().threadsAtivas(), "4 sensores + 1 consumidor");
+    }
+
+    @Test
+    void desligarOUltimoSensorLigadoEquivaleAParar() throws Exception {
+        novo(new ConfiguracaoSimulacao(1, 10, 2));
+        controlador.iniciar();
+        esperarAte(() -> controlador.estatisticas().leiturasProcessadas() >= 40, "40 leituras");
+        for (String id : List.of("PRES-01", "TEMP-01", "UMID-01")) {
+            assertTrue(controlador.desligarSensor(id).isEmpty(), "ainda há sensor ligado: o sistema continua");
+        }
+        assertEquals(FaseSistema.EXECUTANDO, controlador.fase());
+
+        java.util.Optional<ExtratoExecucao> extrato = controlador.desligarSensor("VEL-01");
+
+        assertTrue(extrato.isPresent(), "o último desligado devolve o extrato, como parar()");
+        assertEquals(FaseSistema.PARADO, controlador.fase());
+        assertEquals(0, extrato.get().leiturasPerdidas());
+        assertEquals(extrato.get().leiturasProduzidas(), extrato.get().leiturasProcessadas());
+        Set<String> vivas = threadsVivas();
+        assertTrue(vivas.stream().noneMatch(n -> n.startsWith("sensor-") || n.startsWith("consumidor-")),
+                "threads restantes: " + vivas);
+        try (var arquivos = Files.list(raiz.resolve("data"))) {
+            assertTrue(arquivos.anyMatch(p -> p.getFileName().toString().startsWith("extrato-")), "extrato gravado");
+        }
+    }
+
+    @Test
+    void sensorPausadoContaComoLigadoAoDesligarOsOutros() throws Exception {
+        novo(new ConfiguracaoSimulacao(1, 50, 1));
+        controlador.iniciarSensor("TEMP-01");                // sistema sobe só com TEMP-01
+        controlador.iniciarSensor("VEL-01");
+        controlador.pausarSensor("VEL-01");
+
+        assertTrue(controlador.desligarSensor("TEMP-01").isEmpty(), "VEL-01 está pausado, não desligado");
+        assertEquals(FaseSistema.EXECUTANDO, controlador.fase());
+        assertTrue(controlador.desligarSensor("VEL-01").isPresent(), "agora sim era o último");
+        assertEquals(FaseSistema.PARADO, controlador.fase());
+    }
+
     // ------------------------------------------------------------------ última execução (gráficos ao abrir)
 
     private void escreverLog(Instant... momentos) throws Exception {

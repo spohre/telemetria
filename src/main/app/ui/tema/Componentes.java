@@ -58,6 +58,17 @@ public final class Componentes {
         return botao(texto, icone, estilo, Medida.ALTURA_BOTAO);
     }
 
+    /**
+     * Botão compacto ({@link Medida#ALTURA_BOTAO_PEQUENO}, fonte de rótulo, sem ícone) para ações
+     * dentro de um cartão. Mesmos estilos e estados do botão normal.
+     */
+    public static JButton botaoPequeno(String texto, Estilo estilo) {
+        JButton b = botao(texto, null, estilo, Medida.ALTURA_BOTAO_PEQUENO);
+        b.setFont(Fonte.ROTULO_NEGRITO);
+        b.setBorder(BorderFactory.createEmptyBorder(0, Medida.ESP_2, 0, Medida.ESP_2));
+        return b;
+    }
+
     private static JButton botao(String texto, Icone icone, Estilo estilo, int altura) {
         boolean soIcone = texto == null || texto.isEmpty();
         JButton b = new JButton(texto) {
@@ -83,11 +94,11 @@ public final class Componentes {
         b.setOpaque(false);
         b.setRolloverEnabled(true);
         b.setIconTextGap(Medida.ESP_2);
-        int lado = !soIcone ? Medida.ESP_4 : (altura >= Medida.ALTURA_BOTAO ? Medida.ESP_2 : (altura - Medida.ICONE_PEQ) / 2);
+        int lado = soIcone ? Medida.ESP_2 : Medida.ESP_4;
         b.setBorder(BorderFactory.createEmptyBorder(0, lado, 0, lado));
         if (icone != null) {
             // O ícone segue a cor do texto: muda junto no hover/desabilitado.
-            b.setIcon(Icones.queSegueOTexto(icone, soIcone && altura >= Medida.ALTURA_BOTAO ? Medida.ICONE : Medida.ICONE_PEQ));
+            b.setIcon(Icones.queSegueOTexto(icone, soIcone ? Medida.ICONE : Medida.ICONE_PEQ));
         }
         // Cor do texto atualizada por EVENTO de estado — nunca dentro de paint().
         Runnable atualizar = () -> b.setForeground(corTexto(estilo, b.isEnabled(), b.getModel().isRollover()));
@@ -100,13 +111,6 @@ public final class Componentes {
     /** Botão só com ícone (barra de ferramentas). Sempre com tooltip explicando a ação. */
     public static JButton botaoIcone(Icone icone, String dica) {
         JButton b = botao("", icone, Estilo.FANTASMA);
-        b.setToolTipText(dica);
-        return b;
-    }
-
-    /** Botão só com ícone, menor ({@link Medida#ALTURA_BOTAO_PEQUENO}), para linhas compactas. */
-    public static JButton botaoIconePequeno(Icone icone, String dica) {
-        JButton b = botao("", icone, Estilo.FANTASMA, Medida.ALTURA_BOTAO_PEQUENO);
         b.setToolTipText(dica);
         return b;
     }
@@ -292,8 +296,11 @@ public final class Componentes {
 
     /** Etiqueta com fundo translúcido da cor da severidade (texto sempre presente). */
     public static JLabel badge(Severidade severidade) {
-        String texto = severidade == null ? "NORMAL" : severidade.name();
-        Color cor = Tema.corDa(severidade);
+        return badge(severidade == null ? "NORMAL" : severidade.name(), Tema.corDa(severidade));
+    }
+
+    /** Mesma etiqueta com texto e cor livres (ex.: estado do sensor: PAUSADO, DESLIGADO). */
+    public static JLabel badge(String texto, Color cor) {
         JLabel l = new JLabel(texto, SwingConstants.CENTER) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -479,7 +486,7 @@ public final class Componentes {
             }
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(isThumbRollover() ? Cor.TEXTO_DESATIVADO : Tema.translucida(Cor.TEXTO_DESATIVADO, 120));
+            g2.setColor(isThumbRollover() ? Cor.TEXTO_DESATIVADO : Cor.BORDA);
             g2.fillRoundRect(r.x + 2, r.y + 2, r.width - 4, r.height - 4, r.width - 4, r.width - 4);
             g2.dispose();
         }
@@ -616,7 +623,7 @@ public final class Componentes {
         textos.add(rotulo("O QUE ACONTECEU", Fonte.ROTULO_NEGRITO, Cor.TEXTO_SECUNDARIO));
         textos.add(paragrafo(m.oQueAconteceu()));
         textos.add(Box.createVerticalStrut(Medida.ESP_3));
-        textos.add(rotulo("O QUE FAZER", Fonte.ROTULO_NEGRITO, Cor.PRIMARIA));
+        textos.add(rotulo("O QUE FAZER", Fonte.ROTULO_NEGRITO, Cor.PRIMARIA_TEXTO));
         textos.add(paragrafo(m.oQueFazer()));
         if (!m.detalheTecnico().isEmpty()) {
             textos.add(Box.createVerticalStrut(Medida.ESP_3));

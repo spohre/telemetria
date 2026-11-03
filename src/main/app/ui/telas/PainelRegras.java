@@ -10,6 +10,7 @@ import app.ui.tema.Componentes.Estilo;
 import app.ui.tema.Icones;
 import app.ui.tema.Icones.Icone;
 import app.ui.tema.MensagemErro;
+import app.ui.tema.Tema;
 import domain.DegrauDeSeveridade;
 import domain.Severidade;
 
@@ -28,6 +29,7 @@ import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.util.List;
 
 import static app.ui.tema.Tema.Cor;
 import static app.ui.tema.Tema.Medida;
@@ -36,9 +38,9 @@ import static app.ui.tema.Tema.Medida;
  * ABA REGRAS E SENSORES
  * <pre>
  * ┌ Regras de anomalia (somente leitura) ──────────┐ ┌ Simulação ───────────────────┐
- * │ "A severidade depende de quanto passou..."     │ │ Sensores por tipo   [ 1 ⇕ ]  │
- * │ Tipo | Faixa | BAIXA | MEDIA | ALTA | CRITICA  │ │ Intervalo (ms)      [200 ⇕]  │
- * │      |       | até 4 | até 12| até 24| > 24   │ │                              │
+ * │ Tipo | Faixa aceita | Severidade se violar     │ │ Sensores por tipo   [ 1 ⇕ ]  │
+ * │ Temperatura | 0,0 a 80,0 °C | ● BAIXA a CRITICA│ │ Intervalo (ms)      [200 ⇕]  │
+ * │ (passe o mouse: até quanto vale cada nível)    │ │                              │
  * │ "Definidas no AnalisadorDeAnomalias (JUnit)"   │ │                              │
  * └────────────────────────────────────────────────┘ │ Consumidores        [ 1 ⇕ ]  │
  *                                                    │ "Só com o sistema parado" [Aplicar]
@@ -49,8 +51,6 @@ import static app.ui.tema.Tema.Medida;
 public final class PainelRegras extends JPanel {
 
     private static final long serialVersionUID = 1L;
-    private static final int PRIMEIRA_COLUNA_SEVERIDADE = 2;
-    private static final String SEM_VALOR = "—";
 
     private final ControladorMonitoramento controlador;
     private final JSpinner sensores;
@@ -59,14 +59,17 @@ public final class PainelRegras extends JPanel {
     private final JButton aplicar = Componentes.botao("Aplicar", Icone.OK, Estilo.PRIMARIO);
     private final JLabel aviso = Componentes.rotulo("Edição liberada: o sistema está parado.");
 
-    public PainelRegras(ControladorMonitoramento controlador) {
+    private final Runnable aoAplicarConfiguracao;
+
+    /** @param aoAplicarConfiguracao chamado (EDT) depois de aplicar: a aba Monitoramento refaz os cartões */
+    public PainelRegras(ControladorMonitoramento controlador, Runnable aoAplicarConfiguracao) {
         this.controlador = controlador;
+        this.aoAplicarConfiguracao = aoAplicarConfiguracao;
         setOpaque(false);
         setLayout(new GridBagLayout());
 
-        // ---- regras
-        String[] colunas = {"Tipo", "Faixa aceita",
-                Severidade.BAIXA.name(), Severidade.MEDIA.name(), Severidade.ALTA.name(), Severidade.CRITICA.name()};
+        // ---- regras: Tipo | Faixa aceita | Severidade se violar
+        String[] colunas = {"Tipo", "Faixa aceita", "Severidade se violar"};
         DefaultTableModel modelo = new DefaultTableModel(colunas, 0) {
             private static final long serialVersionUID = 1L;
 
@@ -75,26 +78,27 @@ public final class PainelRegras extends JPanel {
                 return false;
             }
         };
-        for (RegraExibida r : controlador.regras()) {
-            Object[] linha = new Object[colunas.length];
-            linha[0] = r.tipo().nome();
-            linha[1] = FormatoMensagens.decimal(r.minimo()) + " a " + FormatoMensagens.valorComUnidade(r.maximo(), r.tipo());
-            for (Severidade s : Severidade.values()) {
-                linha[PRIMEIRA_COLUNA_SEVERIDADE + s.ordinal()] = textoDoDegrau(r, s);
+        List<RegraExibida> regras = controlador.regras();
+        for (RegraExibida r : regras) {
+            modelo.addRow(new Object[]{r.tipo().nome(),
+                    FormatoMensagens.decimal(r.minimo()) + " a " + FormatoMensagens.valorComUnidade(r.maximo(), r.tipo()),
+                    r});
+        }
+        JTable tabela = new JTable(modelo) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public String getToolTipText(java.awt.event.MouseEvent e) {     // escala completa ao passar o mouse
+                int l = rowAtPoint(e.getPoint());
+                return l < 0 ? null : dicaDaEscala(regras.get(convertRowIndexToModel(l)));
             }
-            modelo.addRow(linha);
-        }
-        JTable tabela = new JTable(modelo);
-        for (Severidade s : Severidade.values()) {
-            tabela.getColumnModel().getColumn(PRIMEIRA_COLUNA_SEVERIDADE + s.ordinal()).setCellRenderer(new CelulaDegrau(s));
-        }
+        };
+        tabela.getColumnModel().getColumn(2).setCellRenderer(new CelulaSeveridadeDaRegra());
         JScrollPane rolagemRegras = Componentes.tabela(tabela);   // instala o cabeçalho e as células do Tema
         for (int c = 0; c < tabela.getColumnCount(); c++) {
             ajustarLarguraAoConteudo(tabela, c);
         }
         JPanel corpoRegras = Componentes.transparente(new BorderLayout(0, Medida.ESP_2));
-        corpoRegras.add(Componentes.paragrafo("A severidade depende de quanto a leitura passou do limite da faixa "
-                + "(acima do máximo ou abaixo do mínimo), na unidade do sensor."), BorderLayout.NORTH);
         corpoRegras.add(rolagemRegras, BorderLayout.CENTER);
         JLabel origem = Componentes.rotulo("Regras definidas no AnalisadorDeAnomalias e cobertas por testes JUnit.");
         origem.setIcon(Icones.de(Icone.OK, Medida.ICONE_PEQ, Cor.NORMAL));
@@ -159,6 +163,7 @@ public final class PainelRegras extends JPanel {
                     (Integer) sensores.getValue(), (Integer) intervalo.getValue(), (Integer) consumidores.getValue()));
             aviso.setText("Configuração aplicada. Vale a partir do próximo Iniciar.");
             aviso.setForeground(Cor.NORMAL);
+            aoAplicarConfiguracao.run();
         } catch (IllegalArgumentException | IllegalStateException ex) {
             Componentes.mostrarErro(this, new MensagemErro(
                     "Configuração não aplicada",
@@ -169,23 +174,23 @@ public final class PainelRegras extends JPanel {
     }
 
     /**
-     * Texto da célula de uma severidade: "até 4,0" ou "> 24,0" (desvio além do limite).
-     * Regra sem escala (severidade fixa): "qualquer" na coluna dela e "—" nas outras.
+     * Dica da linha: até quanto a leitura pode passar do limite em cada severidade
+     * (ex.: "até 4,0 além do limite: BAIXA · … · mais de 24,0: CRITICA").
      */
-    private static String textoDoDegrau(RegraExibida r, Severidade s) {
+    private static String dicaDaEscala(RegraExibida r) {
         if (r.escala().isEmpty()) {
-            return s == r.severidade() ? "qualquer" : SEM_VALOR;
+            return "Qualquer leitura fora da faixa gera alerta " + r.severidade().name() + ".";
         }
+        StringBuilder sb = new StringBuilder("<html>Quanto a leitura passou do limite da faixa:<br>");
         DegrauDeSeveridade anterior = null;
         for (DegrauDeSeveridade d : r.escala()) {
-            if (d.severidade() == s) {
-                return d.semLimite()
-                        ? "> " + FormatoMensagens.decimalCompacto(anterior == null ? 0 : anterior.desvioMaximo())
-                        : "até " + FormatoMensagens.decimalCompacto(d.desvioMaximo());
-            }
+            sb.append(d.semLimite()
+                            ? "mais de " + FormatoMensagens.decimalCompacto(anterior == null ? 0 : anterior.desvioMaximo())
+                            : "até " + FormatoMensagens.decimalCompacto(d.desvioMaximo()))
+                    .append(" ").append(r.tipo().unidade()).append(" → <b>").append(d.severidade().name()).append("</b><br>");
             anterior = d;
         }
-        return SEM_VALOR;
+        return sb.append("</html>").toString();
     }
 
     /**
@@ -207,25 +212,31 @@ public final class PainelRegras extends JPanel {
         col.setPreferredWidth(total);
     }
 
-    /** Célula de uma coluna de severidade: texto na cor da severidade, com ponto (nunca só cor). */
-    private static final class CelulaDegrau extends Componentes.CelulaSeveridade {
+    /**
+     * "Severidade se violar": a severidade da regra (texto na cor dela, com ponto — nunca só cor).
+     * Regra com escala: da menor à maior severidade da escala, ex.: "BAIXA a CRITICA".
+     */
+    private static final class CelulaSeveridadeDaRegra extends Componentes.CelulaSeveridade {
         private static final long serialVersionUID = 1L;
-        private final Severidade severidade;
-
-        CelulaDegrau(Severidade severidade) {
-            this.severidade = severidade;
-        }
 
         @Override
         public java.awt.Component getTableCellRendererComponent(JTable t, Object v, boolean sel, boolean foco,
                                                                 int l, int c) {
-            super.getTableCellRendererComponent(t, severidade, sel, foco, l, c);   // cor + ponto da severidade
-            setText(String.valueOf(v));
-            if (SEM_VALOR.equals(v)) {
-                setForeground(Cor.TEXTO_DESATIVADO);
-                setIcon(null);
+            RegraExibida r = (RegraExibida) v;
+            if (r.escala().isEmpty()) {
+                return super.getTableCellRendererComponent(t, r.severidade(), sel, foco, l, c);
             }
+            Severidade menor = r.escala().get(0).severidade();
+            Severidade maior = r.escala().get(r.escala().size() - 1).severidade();
+            super.getTableCellRendererComponent(t, menor, sel, foco, l, c);     // ponto + cor da menor
+            setText("<html><span style='color:" + hex(Tema.corDa(menor)) + "'>" + menor.name()
+                    + "</span> <span style='color:" + hex(Cor.TEXTO_SECUNDARIO) + "'>a</span> "
+                    + "<span style='color:" + hex(Tema.corDa(maior)) + "'>" + maior.name() + "</span></html>");
             return this;
+        }
+
+        private static String hex(java.awt.Color cor) {
+            return String.format("#%06x", cor.getRGB() & 0xFFFFFF);
         }
     }
 

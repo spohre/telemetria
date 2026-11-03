@@ -5,14 +5,12 @@ import app.EstatisticasExecucao;
 import app.ExtratoExecucao;
 import app.FaseSistema;
 import app.FormatoMensagens;
-import app.HistoricoExecucao;
 import app.OuvinteTelemetria;
 import app.ui.tema.Componentes;
 import app.ui.tema.Componentes.Estilo;
 import app.ui.tema.Icones;
 import app.ui.tema.Icones.Icone;
 import app.ui.tema.MensagemErro;
-import app.ui.tema.Tema;
 import domain.Alerta;
 import domain.LeituraTelemetria;
 
@@ -90,9 +88,9 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
     public JanelaPrincipal(ControladorMonitoramento controlador) {
         super("Central de Telemetria");
         this.controlador = controlador;
-        this.painelMonitoramento = new PainelMonitoramento(controlador.regras(), null);
+        this.painelMonitoramento = new PainelMonitoramento(controlador.regras(), null, this::executarAcaoSensor);
         this.painelHistorico = new PainelHistorico(controlador, this::exportarUltimoExtrato);
-        this.painelRegras = new PainelRegras(controlador);
+        this.painelRegras = new PainelRegras(controlador, this::atualizarEstadosSensores);
 
         setContentPane(criarConteudo());
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
@@ -114,20 +112,23 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
         carregarUltimaExecucao();
     }
 
-    /** Ler o log pode demorar (arquivo grande) → SwingWorker; os gráficos mostram a última execução. */
+    /**
+     * Ler o log pode demorar (arquivo grande) → SwingWorker. Os gráficos (escondidos até
+     * "Ver gráfico") e os cartões já abrem com a última execução registrada.
+     */
     private void carregarUltimaExecucao() {
         if (controlador.fase() != FaseSistema.PARADO) {
             return;
         }
-        new SwingWorker<HistoricoExecucao, Void>() {
+        new SwingWorker<app.HistoricoExecucao, Void>() {
             @Override
-            protected HistoricoExecucao doInBackground() {
+            protected app.HistoricoExecucao doInBackground() {
                 return controlador.ultimaExecucao();
             }
 
             @Override
             protected void done() {
-                if (controlador.fase() != FaseSistema.PARADO || painelMonitoramento.temDados()) {
+                if (controlador.fase() != FaseSistema.PARADO || painelMonitoramento.temLeiturasNosGraficos()) {
                     return;           // o usuário já iniciou uma execução nova enquanto o log era lido
                 }
                 try {
@@ -135,7 +136,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                 } catch (ExecutionException ex) {
-                    painelMonitoramento.avisarHistoricoIndisponivel("arquivo " + CAMINHO_LOG + " ilegível");
+                    // sem histórico: os gráficos só começam vazios (não é erro para o usuário)
                 }
             }
         }.execute();
@@ -269,7 +270,9 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
         if (controlador.fase() == FaseSistema.PAUSADO) {
             controlador.retomar();
         } else {
-            painelMonitoramento.novaExecucao();      // gráficos passam a mostrar só esta execução
+            if (controlador.fase() == FaseSistema.PARADO) {
+                painelMonitoramento.novaExecucao();      // gráficos passam a mostrar só esta execução
+            }
             controlador.iniciar();
         }
         aplicarFase(controlador.fase());
@@ -294,6 +297,8 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
 
     /** Encerrar threads pode demorar (drenar fila, join) → SwingWorker. */
     private void pararEmSegundoPlano(java.util.function.Consumer<ExtratoExecucao> depois) {
+        encerrando = true;
+        atualizarEstadosSensores();
         iniciar.setEnabled(false);
         pausar.setEnabled(false);
         parar.setEnabled(false);
@@ -306,6 +311,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
 
             @Override
             protected void done() {
+                encerrando = false;
                 aplicarFase(controlador.fase());
                 try {
                     ultimoExtrato = get();
@@ -322,6 +328,95 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Clique num botão do cartão de um sensor. Desligar espera a thread do sensor terminar
+     * (join) e o controller pode estar ocupado parando o sistema → tudo em SwingWorker.
+     */
+    private void executarAcaoSensor(String sensorId, CartaoSensor.Acao acao) {
+        // Desligar o último sensor ligado encerra o sistema: trava os botões como no Parar geral
+        java.util.Map<String, app.EstadoSensor> antes = controlador.estadosSensores();
+        boolean ultimoLigado = acao == CartaoSensor.Acao.DESLIGAR
+                && antes.entrySet().stream().noneMatch(e -> !e.getKey().equals(sensorId)
+                && e.getValue() != app.EstadoSensor.DESLIGADO);
+        if (ultimoLigado) {
+            encerrando = true;
+            iniciar.setEnabled(false);
+            pausar.setEnabled(false);
+            parar.setEnabled(false);
+            Componentes.atualizarIndicador(indicadorFase, "Encerrando…", Cor.SEV_MEDIA);
+            atualizarEstadosSensores();
+        }
+        if (acao == CartaoSensor.Acao.INICIAR && controlador.fase() == FaseSistema.PARADO) {
+            painelMonitoramento.novaExecucao();          // ligar um sensor com tudo parado = execução nova
+        }
+        new SwingWorker<java.util.Optional<ExtratoExecucao>, Void>() {
+            @Override
+            protected java.util.Optional<ExtratoExecucao> doInBackground() {
+                switch (acao) {
+                    case INICIAR -> controlador.iniciarSensor(sensorId);
+                    case PAUSAR -> controlador.pausarSensor(sensorId);
+                    case RETOMAR -> controlador.retomarSensor(sensorId);
+                    case DESLIGAR -> {
+                        return controlador.desligarSensor(sensorId);
+                    }
+                }
+                return java.util.Optional.empty();
+            }
+
+            @Override
+            protected void done() {
+                encerrando = false;
+                java.util.Optional<ExtratoExecucao> extrato = java.util.Optional.empty();
+                try {
+                    extrato = get();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException ex) {
+                    String verbo = switch (acao) {
+                        case INICIAR -> "ligar";
+                        case PAUSAR -> "pausar";
+                        case RETOMAR -> "retomar";
+                        case DESLIGAR -> "desligar";
+                    };
+                    Componentes.mostrarErro(JanelaPrincipal.this, new MensagemErro(
+                            "Não foi possível " + verbo + " o sensor " + sensorId,
+                            ex.getCause().getMessage() + ".",
+                            "Se o sistema estiver pausado, clique em Retomar no topo e tente de novo.",
+                            ex.getCause()));
+                }
+                painelMonitoramento.liberarSensor(sensorId);
+                aplicarFase(controlador.fase());     // ligar com tudo parado inicia; desligar o último para
+                extrato.ifPresent(e -> {             // último sensor desligado = Parar: mostra o extrato
+                    ultimoExtrato = e;
+                    DialogoExtrato.mostrar(JanelaPrincipal.this, e, controlador);
+                });
+            }
+        }.execute();
+    }
+
+    /** {@code true} enquanto o Parar geral roda em segundo plano (nenhum botão de sensor vale). */
+    private boolean encerrando;
+
+    /**
+     * Cartão para cada sensor disponível e o estado de cada um (EDT; as consultas ao controller
+     * não bloqueiam). Os botões dos cartões valem com o sistema parado ou em execução — não com
+     * ele pausado no geral nem durante o Parar. Em execução, o Iniciar geral fica ativo enquanto
+     * houver sensor desligado (liga os que faltam).
+     */
+    private void atualizarEstadosSensores() {
+        FaseSistema fase = controlador.fase();
+        java.util.Map<String, app.EstadoSensor> estados = controlador.estadosSensores();
+        painelMonitoramento.atualizarEstadosSensores(controlador.sensoresDisponiveis(), estados,
+                !encerrando && fase != FaseSistema.PAUSADO);
+        if (fase == FaseSistema.EXECUTANDO && !encerrando) {
+            boolean algumDesligado = estados.containsValue(app.EstadoSensor.DESLIGADO);
+            iniciar.setEnabled(algumDesligado);
+            iniciar.setToolTipText(algumDesligado ? "Liga os sensores que estão desligados" : null);
+        } else {
+            iniciar.setToolTipText(null);
+        }
     }
 
     private void exportarUltimoExtrato() {
@@ -371,6 +466,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
         }
         painelRegras.aoMudarFase(fase);
         painelMonitoramento.aoMudarFase(fase);
+        atualizarEstadosSensores();
     }
 
     /** EDT. Público para pré-visualização. */
@@ -385,6 +481,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
         Componentes.atualizarIndicador(stBanco, e.bancoConectado() ? "Banco conectado" : "Banco indisponível",
                 e.bancoConectado() ? Cor.NORMAL : Cor.PERIGO);
         tempo.setText(FormatoMensagens.duracao(e.segundosDecorridos()));
+        atualizarEstadosSensores();      // a cada 1 s: cartões criados depois também ficam certos
     }
 
     public PainelMonitoramento painelMonitoramento() {
@@ -411,7 +508,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
                     g2.setColor(Cor.PRIMARIA);
                     g2.fillRect(Medida.ESP_3, getHeight() - 2, getWidth() - Medida.ESP_3 * 2, 2);
                 } else if (getModel().isRollover()) {
-                    g2.setColor(Tema.translucida(Cor.SUPERFICIE_ELEVADA, 160));
+                    g2.setColor(Cor.SUPERFICIE);
                     g2.fillRoundRect(0, 0, getWidth(), getHeight() - 3, Medida.RAIO * 2, Medida.RAIO * 2);
                 }
                 g2.dispose();

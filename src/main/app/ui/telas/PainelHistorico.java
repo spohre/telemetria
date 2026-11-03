@@ -32,14 +32,11 @@ import static app.ui.tema.Tema.Medida;
  * ABA HISTÓRICO DE ALERTAS
  * <pre>
  * Título: Histórico de alertas (banco de dados)
- * Filtros: Sensor [Todos ▾] Tipo [Todos ▾] Severidade [Todas ▾] Período [Tudo ▾]        [Exportar extrato]
+ * Filtros: Sensor [Todos ▾] Tipo [Todos ▾] Severidade [Todas ▾] Período [Tudo ▾]  [Filtrar] [Exportar extrato]
  * ┌ Nº | Data/hora | Sensor | Tipo | Valor | Regra violada | Severidade ┐
  * └ rodapé: "128 alertas encontrados no banco"  /  "Consultando o banco…"  ┘
  * </pre>
- * Mudar qualquer filtro já refaz a consulta (não há botão Filtrar). A lista do filtro Sensor
- * vem do banco: todos os sensores que já têm alerta, inclusive de execuções anteriores, e é
- * atualizada a cada consulta. A consulta é DEMORADA (JDBC) → roda em SwingWorker; se um
- * filtro mudar com uma consulta em andamento, outra roda logo depois, com o filtro mais novo.
+ * A consulta é DEMORADA (JDBC) → roda em SwingWorker; botões ficam desabilitados.
  * Mostra alertas de execuções anteriores — é a prova visual da persistência.
  */
 public final class PainelHistorico extends JPanel {
@@ -51,10 +48,8 @@ public final class PainelHistorico extends JPanel {
     private final JComboBox<Object> comboTipo = new JComboBox<>();
     private final JComboBox<Object> comboSeveridade = new JComboBox<>();
     private final JComboBox<String> comboPeriodo = new JComboBox<>(new String[]{"Tudo", "Última hora", "Últimas 24 h"});
-    private final JLabel situacao = Componentes.rotulo("Escolha os filtros — a tabela atualiza sozinha.");
-    private boolean consultando;
-    private boolean consultaPendente;
-    private boolean atualizandoSensores;     // trocar os itens do combo não deve disparar consulta
+    private final JButton filtrar = Componentes.botao("Filtrar", Icone.FILTRO, Estilo.PRIMARIO);
+    private final JLabel situacao = Componentes.rotulo("Clique em Filtrar para consultar o banco.");
     private final DefaultTableModel modelo = new DefaultTableModel(
             new Object[]{"Nº", "Data/hora", "Sensor", "Tipo", "Valor", "Regra violada", "Severidade"}, 0) {
         private static final long serialVersionUID = 1L;
@@ -79,7 +74,8 @@ public final class PainelHistorico extends JPanel {
             comboSeveridade.addItem(s);
         }
 
-        comboSensor.setToolTipText("Sensores que já têm alerta gravado no banco");
+        comboSensor.setEditable(true);
+        comboSensor.setToolTipText("Digite o id do sensor (ex.: TEMP-01) ou deixe 'Todos'");
         Componentes.combo(comboSensor);
         Componentes.combo(comboTipo);
         Componentes.combo(comboSeveridade);
@@ -95,6 +91,7 @@ public final class PainelHistorico extends JPanel {
         filtros.add(Componentes.rotulo("Período"));
         filtros.add(comboPeriodo);
         filtros.add(Box.createHorizontalStrut(Medida.ESP_2));
+        filtros.add(filtrar);
         JButton exportar = Componentes.botao("Exportar extrato", Icone.EXPORTAR, Estilo.SECUNDARIO);
         exportar.addActionListener(e -> aoExportarExtrato.run());
         filtros.add(exportar);
@@ -114,87 +111,39 @@ public final class PainelHistorico extends JPanel {
 
         add(Componentes.secao("Histórico de alertas (banco de dados)", Icone.HISTORICO, corpo), BorderLayout.CENTER);
 
-        for (JComboBox<?> c : List.of(comboSensor, comboTipo, comboSeveridade, comboPeriodo)) {
-            c.addActionListener(e -> {
-                if (!atualizandoSensores) {
-                    consultar();
-                }
-            });
-        }
-    }
-
-    /** O que uma consulta devolve: os alertas filtrados e a lista atual de sensores do histórico. */
-    private record Resultado(List<Alerta> alertas, List<String> sensores) {
+        filtrar.addActionListener(e -> consultar());
     }
 
     /** Dispara a consulta em segundo plano. Chamar na EDT. */
     public void consultar() {
-        if (consultando) {
-            consultaPendente = true;       // roda de novo quando a atual terminar, com o filtro mais novo
-            return;
-        }
-        consultando = true;
-        consultaPendente = false;
         FiltroAlertas filtro = filtroAtual();
+        filtrar.setEnabled(false);
         situacao.setText("Consultando o banco…");
 
-        new SwingWorker<Resultado, Void>() {
+        new SwingWorker<List<Alerta>, Void>() {
             @Override
-            protected Resultado doInBackground() {                // fora da EDT
-                return new Resultado(controlador.buscarAlertas(filtro), controlador.sensoresNoHistorico());
+            protected List<Alerta> doInBackground() {
+                return controlador.buscarAlertas(filtro);         // fora da EDT
             }
 
             @Override
             protected void done() {                                // de volta na EDT
-                consultando = false;
+                filtrar.setEnabled(true);
                 try {
-                    Resultado r = get();
-                    atualizarSensores(r.sensores());
-                    mostrar(r.alertas());
+                    mostrar(get());
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                 } catch (ExecutionException ex) {
                     situacao.setText("A última consulta falhou — os dados exibidos podem estar desatualizados.");
-                    if (!consultaPendente) {
-                        Componentes.mostrarErro(PainelHistorico.this, new MensagemErro(
-                                "Não foi possível consultar o histórico",
-                                "O banco de dados não respondeu à consulta de alertas.",
-                                "Confira se nenhum outro programa está usando o arquivo data/telemetria.mv.db "
-                                        + "e se db.url em db.properties está correto. Depois mude um filtro "
-                                        + "ou abra a aba de novo para consultar outra vez.",
-                                ex.getCause()));
-                    }
-                }
-                if (consultaPendente) {
-                    consultar();
+                    Componentes.mostrarErro(PainelHistorico.this, new MensagemErro(
+                            "Não foi possível consultar o histórico",
+                            "O banco de dados não respondeu à consulta de alertas.",
+                            "Confira se nenhum outro programa está usando o arquivo data/telemetria.mv.db "
+                                    + "e se db.url em db.properties está correto. Depois clique em Filtrar de novo.",
+                            ex.getCause()));
                 }
             }
         }.execute();
-    }
-
-    /** Troca os itens do filtro Sensor mantendo a escolha atual (EDT). */
-    private void atualizarSensores(List<String> sensores) {
-        Object escolhido = comboSensor.getSelectedItem();
-        List<String> itens = new java.util.ArrayList<>();
-        itens.add("Todos");
-        itens.addAll(sensores);
-        if (escolhido != null && !itens.contains(escolhido.toString())) {
-            itens.add(escolhido.toString());   // escolhido sem alertas no momento: continua selecionável
-        }
-        boolean iguais = itens.size() == comboSensor.getItemCount();
-        for (int i = 0; iguais && i < itens.size(); i++) {
-            iguais = itens.get(i).equals(comboSensor.getItemAt(i));
-        }
-        if (iguais) {
-            return;
-        }
-        atualizandoSensores = true;
-        try {
-            comboSensor.setModel(new javax.swing.DefaultComboBoxModel<>(itens.toArray(new String[0])));
-            comboSensor.setSelectedItem(escolhido == null ? "Todos" : escolhido.toString());
-        } finally {
-            atualizandoSensores = false;
-        }
     }
 
     /** Preenche a tabela (EDT). Público para permitir pré-visualização com dados fixos. */

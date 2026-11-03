@@ -43,9 +43,10 @@ import static app.ui.tema.Tema.Medida;
  *         13:21:10 13:21:20 13:21:30
  * </pre>
  *
- * <p>Compacto: poucas marcações. Expandido: mais marcações de valor e de tempo, pontos em
- * cada leitura quando há espaço e escolha de janela de tempo. Passar o mouse mostra a
- * leitura mais próxima. Só exibe — limites vêm da {@link RegraExibida} do controller.</p>
+ * <p>Fica escondido por padrão: aparece na área "Ver gráfico" da aba Monitoramento (~200 px).
+ * Compacto: poucas marcações. Expandido: mais marcações de valor e de tempo e pontos em
+ * cada leitura quando há espaço. Passar o mouse mostra a leitura mais próxima. Só exibe —
+ * limites vêm da {@link RegraExibida} do controller. Guarda as leituras mesmo escondido.</p>
  *
  * <p>Muitas leituras: cada coluna de pixel desenha o mínimo e o máximo do trecho, então
  * nenhum pico some do desenho. Acima de {@link Medida#MAX_PONTOS_GRAFICO} pontos guardados,
@@ -82,7 +83,7 @@ public final class GraficoSensor extends JComponent {
         this.regra = regra;
         this.tipo = regra.tipo();
         setOpaque(false);
-        setPreferredSize(new Dimension(Medida.LARGURA_INFO_SENSOR, Medida.ALTURA_SENSOR));
+        setPreferredSize(new Dimension(Medida.ALTURA_AREA_GRAFICO, Medida.ALTURA_AREA_GRAFICO - Medida.ALTURA_BOTAO));
         MouseAdapter mouse = new MouseAdapter() {
             @Override
             public void mouseMoved(MouseEvent e) {
@@ -240,7 +241,7 @@ public final class GraficoSensor extends JComponent {
         long tFim = n == 0 ? System.currentTimeMillis() : tempos[n - 1];
         long tIni = n == 0 ? tFim - 60_000 : (janelaMs > 0 ? tFim - janelaMs : tempos[0]);
         if (tFim - tIni < 5_000) {
-            tIni = tFim - 5_000;          // poucas leituras: não esticar 2 pontos na largura toda
+            tFim = tIni + 5_000;          // poucas leituras: começa à esquerda e vai preenchendo
         }
         int i0 = n == 0 ? 0 : Math.max(0, primeiroIndiceEmOuDepois(tIni) - 1);
         int i1 = n;                       // exclusivo
