@@ -2,6 +2,7 @@ package app;
 
 import domain.Alerta;
 import domain.LeituraTelemetria;
+import domain.ParametrosDeEpisodios;
 import domain.Severidade;
 import domain.TipoSensor;
 import org.junit.jupiter.api.DisplayName;
@@ -87,6 +88,23 @@ class FormatoMensagensTest {
         assertEquals("0,35", FormatoMensagens.decimalCompacto(0.35));
         assertEquals("10,5", FormatoMensagens.decimalCompacto(10.5));
         assertEquals("1.050,0", FormatoMensagens.decimalCompacto(1050));
+    }
+
+    @Test
+    @DisplayName("resumo da simulação por eventos discretos em segundos e em leituras")
+    void resumoEpisodios() {
+        assertEquals("Simulação por eventos discretos: ~10,0 s normais (50 leituras) em média entre episódios; "
+                        + "cada episódio aquece 1,2 a 2,4 s, fica em crise 1,2 a 2,8 s (passa do limite em 80 % deles) "
+                        + "e esfria 1,2 a 2,4 s",
+                FormatoMensagens.resumoEpisodios(ParametrosDeEpisodios.padrao(), 200));
+        assertEquals("Simulação por eventos discretos: ~25,0 s normais (50 leituras) em média entre episódios; "
+                        + "cada episódio aquece 3,0 a 6,0 s, fica em crise 3,0 a 7,0 s (passa do limite em 100 % deles) "
+                        + "e esfria 3,0 a 6,0 s",
+                FormatoMensagens.resumoEpisodios(ParametrosDeEpisodios.padrao().comMediaEntreEpisodios(50)
+                        .comProbabilidadeDeCrise(1.0), 500));
+        assertTrue(FormatoMensagens.resumoEpisodios(ParametrosDeEpisodios.padrao(), 10)
+                .contains("aquece 0,06 a 0,12 s, fica em crise 0,06 a 0,14 s"),
+                "intervalo curto não pode virar \"0,1 a 0,1 s\"");
     }
 
     @Test

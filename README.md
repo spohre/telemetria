@@ -37,7 +37,7 @@ precisam ser refeitos; para isso há instruções em `lancador/main.go` (Go 1.21
 ## Compilar e testar
 
 ```bash
-mvn test                       # 111 testes: unidade + integração com H2 em memória
+mvn test                       # 193 testes: unidade + integração com H2 em memória
 mvn test -Dgroups=integracao   # só os de banco
 mvn test -Dgroups=estresse     # só o estresse: 3 cenários × 5 rodadas (~80 s); fica fora do mvn test
 ```
@@ -54,7 +54,9 @@ mvn -q compile exec:java -Dexec.mainClass=app.ui.demo.DemoInterface   # tela com
 No PowerShell, mantenha as aspas em volta de `-Dexec.args=...`.
 
 Opções do modo console (todas opcionais): `--sensores N` por tipo (1–10; total = 4 × N),
-`--intervalo MS` (10–5000), `--consumidores N` (1–4), `--fila N` (capacidade; padrão 1000).
+`--intervalo MS` (10–5000), `--consumidores N` (1–4), `--fila N` (capacidade; padrão 1000),
+`--episodio-medio SEGUNDOS` (tempo normal médio entre episódios de anomalia de cada sensor; padrão ~10 s a 200 ms;
+cada episódio aquece, entra em crise e esfria aos poucos).
 Ctrl+C encerra de forma limpa (drena a fila, fecha o log, grava o extrato).
 
 ### Arquivos gerados (pasta `data/`, ignorada pelo git)
@@ -70,7 +72,9 @@ Ctrl+C encerra de forma limpa (drena a fila, fecha o log, grava o extrato).
 ```
 src/main/        código (pacotes sem prefixo: domain, infra, app)
 ├── domain/      Sensor (Runnable), LeituraTelemetria, Alerta, AnalisadorDeAnomalias, RegraDeAnomalia,
-│                DegrauDeSeveridade, GeradorPasseioAleatorio, portas PublicadorDeLeituras e RepositorioDeAlertas
+│                DegrauDeSeveridade, portas PublicadorDeLeituras e RepositorioDeAlertas;
+│                valores simulados por eventos discretos: GeradorPorEventosDiscretos, CicloDeEpisodios,
+│                AgendaDeEventos, EventoDeSimulacao, EpisodioDeAnomalia, ParametrosDeEpisodios, GeradorPasseioAleatorio
 ├── infra/       FilaDeLeituras, AlertaRepository (JDBC), LogArquivo (I/O), FabricaDeConexoes, InicializadorBanco
 └── app/         ControladorTelemetria, ProcessadorDeLeituras (consumidor), ContadoresExecucao, OuvinteConsole,
     │            FormatoMensagens, Main

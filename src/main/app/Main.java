@@ -22,8 +22,10 @@ import javax.swing.SwingUtilities;
  * </pre>
  *
  * <p>Opções do modo console (todas opcionais): {@code --sensores N} (por tipo, 1–10),
- * {@code --intervalo MS} (10–5000), {@code --consumidores N} (1–4) e {@code --fila N}
- * (capacidade da fila; padrão 1000 — menor força os sensores a esperar).</p>
+ * {@code --intervalo MS} (10–5000), {@code --consumidores N} (1–4), {@code --fila N}
+ * (capacidade da fila; padrão 1000 — menor força os sensores a esperar) e
+ * {@code --episodio-medio SEGUNDOS} (tempo normal médio entre episódios de anomalia de cada sensor;
+ * convertido em leituras pelo intervalo — padrão 50 leituras, ~10 s a 200 ms).</p>
  */
 public final class Main {
 
@@ -85,21 +87,29 @@ public final class Main {
         int sensores = base.sensoresPorTipo();
         int intervalo = base.intervaloMs();
         int consumidores = base.consumidores();
+        Double episodioMedioSegundos = null;
         try {
             for (int i = 1; i < args.length; i++) {
                 switch (args[i]) {
                     case "--sensores" -> sensores = Integer.parseInt(args[++i]);
                     case "--intervalo" -> intervalo = Integer.parseInt(args[++i]);
                     case "--consumidores" -> consumidores = Integer.parseInt(args[++i]);
+                    case "--episodio-medio" -> episodioMedioSegundos = Double.parseDouble(args[++i]);
                     case "--fila" -> i++;   // já lida em main()
                     default -> segundos = Integer.parseInt(args[i]);
                 }
             }
             controlador.aplicarConfiguracao(new ConfiguracaoSimulacao(sensores, intervalo, consumidores));
+            if (episodioMedioSegundos != null) {   // segundos → leituras (passos do relógio simulado)
+                double leituras = episodioMedioSegundos * 1000 / intervalo;
+                controlador.aplicarParametrosEpisodios(
+                        controlador.parametrosEpisodios().comMediaEntreEpisodios(leituras));
+            }
         } catch (RuntimeException e) {   // número inválido, opção sem valor ou fora da faixa
             System.out.println(FormatoMensagens.console(Instant.now(), FormatoMensagens.Nivel.ERRO, "sistema",
                     "Argumentos inválidos (" + e.getMessage() + "). Uso: --console [segundos] "
-                            + "[--sensores 1-10] [--intervalo 10-5000] [--consumidores 1-4] [--fila N]"));
+                            + "[--sensores 1-10] [--intervalo 10-5000] [--consumidores 1-4] [--fila N] "
+                            + "[--episodio-medio SEGUNDOS]"));
             System.exit(2);
             return;
         }

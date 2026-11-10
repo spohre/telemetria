@@ -3,6 +3,7 @@ package app;
 import static org.junit.jupiter.api.Assertions.*;
 
 import domain.LeituraTelemetria;
+import domain.ParametrosDeEpisodios;
 import domain.Severidade;
 import domain.TipoSensor;
 
@@ -14,7 +15,9 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
@@ -231,6 +234,57 @@ class ControladorTelemetriaTest {
         assertTrue(e.totalAlertas() >= 3);
         assertEquals(1, ouvinte.falhas.size(), "aviso único de banco fora");
         assertTrue(FormatoMensagens.extrato(e).contains("<<< VERIFICAR"));
+    }
+
+    @Test
+    void parametrosDeEpisodiosSoMudamComOSistemaParado() {
+        novo(new ConfiguracaoSimulacao(1, 50, 1));
+        assertEquals(ParametrosDeEpisodios.padrao(), controlador.parametrosEpisodios(), "padrão");
+        ParametrosDeEpisodios frequentes = ParametrosDeEpisodios.padrao().comMediaEntreEpisodios(10);
+
+        controlador.iniciar();
+        assertThrows(IllegalStateException.class, () -> controlador.aplicarParametrosEpisodios(frequentes));
+        controlador.parar();
+
+        controlador.aplicarParametrosEpisodios(frequentes);
+        assertEquals(frequentes, controlador.parametrosEpisodios());
+    }
+
+    @Test
+    void alertasDaExecucaoRealVemEmRajadasPorSensor() throws Exception {
+        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        controlador.aplicarParametrosEpisodios(ParametrosDeEpisodios.padrao().comMediaEntreEpisodios(20));
+        controlador.iniciar();
+        esperarAte(() -> ouvinte.processadas.size() >= 1200, "leituras suficientes");
+        controlador.parar();
+
+        int alertas = 0;
+        int rajadas = 0;
+        Map<String, List<Dubles.OuvinteFalso.Processada>> porSensor = ouvinte.processadas.stream()
+                .collect(Collectors.groupingBy(p -> p.leitura().sensorId()));
+        for (List<Dubles.OuvinteFalso.Processada> serie : porSensor.values()) {
+            serie.sort(Comparator.comparingLong(p -> p.leitura().sequencia()));
+            boolean anterior = false;
+            for (Dubles.OuvinteFalso.Processada p : serie) {
+                boolean alerta = p.alerta() != null;
+                alertas += alerta ? 1 : 0;
+                rajadas += alerta && !anterior ? 1 : 0;
+                anterior = alerta;
+            }
+        }
+        assertTrue(rajadas > 5, "rajadas: " + rajadas);
+        double media = (double) alertas / rajadas;
+        assertTrue(media >= 2.0, "alertas por rajada = " + media + " (gerador antigo ~1,05)");
+    }
+
+    @Test
+    void consoleAnunciaASimulacaoPorEventosDiscretos() throws Exception {
+        novo(new ConfiguracaoSimulacao(1, 200, 1));
+        controlador.iniciar();
+        controlador.parar();
+        String console = saida.toString(StandardCharsets.UTF_8);
+        assertTrue(console.contains("Simulação por eventos discretos: ~10,0 s normais (50 leituras) em média entre episódios; "
+                + "cada episódio aquece 1,2 a 2,4 s"), console);
     }
 
     @Test

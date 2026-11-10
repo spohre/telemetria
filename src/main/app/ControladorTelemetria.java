@@ -2,8 +2,9 @@ package app;
 
 import domain.Alerta;
 import domain.AnalisadorDeAnomalias;
-import domain.GeradorPasseioAleatorio;
+import domain.GeradorPorEventosDiscretos;
 import domain.LeituraTelemetria;
+import domain.ParametrosDeEpisodios;
 import domain.RepositorioDeAlertas;
 import domain.Sensor;
 import domain.Severidade;
@@ -48,6 +49,9 @@ import java.util.concurrent.TimeUnit;
  *   <li>{@code log-escritor} — a única que escreve no arquivo de log.</li>
  * </ul>
  *
+ * <p>Os valores de cada sensor vêm de um {@link GeradorPorEventosDiscretos} próprio (com
+ * {@code new Random()}: cada execução é diferente), configurado por {@link ParametrosDeEpisodios}.</p>
+ *
  * <h2>Encerramento ({@link #parar()}) — sem perda e sem deadlock</h2>
  * <ol>
  *   <li>interrompe os sensores e espera cada um ({@code join});</li>
@@ -88,6 +92,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
 
     private volatile FaseSistema fase = FaseSistema.PARADO;
     private volatile ConfiguracaoSimulacao configuracao = CONFIGURACAO_PADRAO;
+    private volatile ParametrosDeEpisodios parametrosEpisodios = ParametrosDeEpisodios.padrao();
 
     // Estado de uma execução: criado em iniciar(), lido pelas estatísticas (volatile).
     private volatile Execucao execucao;
@@ -166,6 +171,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
      */
     private boolean iniciarExecucao(java.util.function.Predicate<String> ligar) {
         ConfiguracaoSimulacao cfg = configuracao;
+        ParametrosDeEpisodios episodios = parametrosEpisodios;
         LogArquivo log;
         try {
             log = new LogArquivo(raiz.resolve(CAMINHO_LOG), FormatoMensagens.CABECALHO_LOG);
@@ -188,7 +194,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         Map<String, Thread> threadsSensores = new ConcurrentHashMap<>();
         sensoresDaConfiguracao(cfg).forEach((id, tipo) -> {
             Sensor s = new Sensor(id, tipo, cfg.intervaloMs(),
-                    new GeradorPasseioAleatorio(analisador.regraDo(tipo), new Random()), fila, relogio);
+                    GeradorPorEventosDiscretos.para(analisador, tipo, episodios, new Random()), fila, relogio);
             sensores.put(id, s);
             threadsSensores.put(id, new Thread(s, "sensor-" + id));
         });
@@ -208,6 +214,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
                 : ligados.size() + " de " + sensores.size() + " sensores";
         imprimir(FormatoMensagens.Nivel.INFO, "sistema", quantos + " e " + cfg.consumidores()
                 + " consumidor(es) iniciados (intervalo " + cfg.intervaloMs() + " ms)");
+        imprimir(FormatoMensagens.Nivel.INFO, "sistema", FormatoMensagens.resumoEpisodios(episodios, cfg.intervaloMs()));
         consumidores.forEach(Thread::start);       // consumidores primeiro: já esperam na fila
         ligados.forEach(id -> threadsSensores.get(id).start());
         agendador.scheduleAtFixedRate(this::publicarEstatisticas, 1, 1, TimeUnit.SECONDS);
@@ -548,6 +555,19 @@ public class ControladorTelemetria implements ControladorMonitoramento {
             throw new IllegalStateException("Só é possível alterar a simulação com o sistema parado");
         }
         configuracao = Objects.requireNonNull(nova, "nova");
+    }
+
+    /** Parâmetros da simulação de episódios de anomalia usados na próxima execução. */
+    public ParametrosDeEpisodios parametrosEpisodios() {
+        return parametrosEpisodios;
+    }
+
+    /** Troca os parâmetros de episódio — como {@link #aplicarConfiguracao}, só com o sistema PARADO. */
+    public synchronized void aplicarParametrosEpisodios(ParametrosDeEpisodios novos) {
+        if (fase != FaseSistema.PARADO) {
+            throw new IllegalStateException("Só é possível alterar a simulação com o sistema parado");
+        }
+        parametrosEpisodios = Objects.requireNonNull(novos, "novos");
     }
 
     /** Grava {@code raiz/data/extrato-AAAAMMDD-HHmmss.txt} (UTF-8) e devolve o caminho. */

@@ -7,7 +7,7 @@ Cada linha executa **um único** método de teste (`-Dtest=Classe#metodo`).
 - `AnalisadorDeAnomaliasTest*` tem o `*` porque os testes ficam em classes internas (`@Nested`). O `*` encontra o método em qualquer uma delas.
 - `fronteirasNaTemperatura` (8 casos) e `fronteirasAbaixoDaFaixaNaVelocidade` (6 casos) são parametrizados. Um comando roda todos os casos daquele método.
 - `TesteDeEstresse` precisa de `'-Dgroups=estresse'`, porque o `pom.xml` exclui essa tag por padrão. Cada um repete 5 vezes e leva cerca de 25 s.
-- Todos os testes de uma vez: `mvn test` (111 testes). Só os de estresse: `mvn test '-Dgroups=estresse'`.
+- Todos os testes de uma vez: `mvn test` (193 testes). Só os de estresse: `mvn test '-Dgroups=estresse'`.
 
 ## Regras de anomalia: os testes unitários exigidos pela especificação (≥ 5, sem threads nem banco)
 
@@ -73,6 +73,70 @@ mvn test '-Dtest=GeradorPasseioAleatorioTest#valoresTemNoMaximoUmaCasaDecimal'
 mvn test '-Dtest=GeradorPasseioAleatorioTest#rejeitaProbabilidadeInvalida'
 ```
 
+## Simulação de eventos discretos: geração dos valores (sem threads, `Random` com semente)
+
+### AgendaDeEventosTest
+```powershell
+mvn test '-Dtest=AgendaDeEventosTest#entregaEventosEmOrdemDeTempoMesmoAgendadosForaDeOrdem'
+mvn test '-Dtest=AgendaDeEventosTest#empateNoMesmoPassoRespeitaAOrdemDeAgendamento'
+mvn test '-Dtest=AgendaDeEventosTest#processarAteNaoEntregaEventosFuturos'
+mvn test '-Dtest=AgendaDeEventosTest#eventoAgendadoPeloTratadorDentroDaJanelaEhEntregueNaMesmaChamada'
+mvn test '-Dtest=AgendaDeEventosTest#naoAceitaAgendarNoPassado'
+mvn test '-Dtest=AgendaDeEventosTest#relogioDaAgendaNaoVoltaNoTempo'
+mvn test '-Dtest=AgendaDeEventosTest#agendaVaziaNaoTemProximo'
+mvn test '-Dtest=AgendaDeEventosTest#eventoRejeitaDadosInvalidos'
+```
+
+### ParametrosDeEpisodiosTest
+```powershell
+mvn test '-Dtest=ParametrosDeEpisodiosTest#padraoTemOsValoresCombinados'
+mvn test '-Dtest=ParametrosDeEpisodiosTest#rejeitaMediaEntreEpisodiosNaoPositivaOuNaoFinita'
+mvn test '-Dtest=ParametrosDeEpisodiosTest#rejeitaDuracaoDaCriseMenorQueDoisOuMinimaMaiorQueAMaxima'
+mvn test '-Dtest=ParametrosDeEpisodiosTest#rejeitaAquecimentoOuEsfriamentoNegativosOuInvertidos'
+mvn test '-Dtest=ParametrosDeEpisodiosTest#rejeitaProbabilidadeDeCriseForaDeZeroAUm'
+mvn test '-Dtest=ParametrosDeEpisodiosTest#rejeitaPesosNegativosTodosZeroOuSeveridadeFaltando'
+mvn test '-Dtest=ParametrosDeEpisodiosTest#rejeitaProbabilidadeAcimaForaDaFaixaOuTipoFaltando'
+mvn test '-Dtest=ParametrosDeEpisodiosTest#velocidadeNaoAceitaDesvioAbaixo'
+mvn test '-Dtest=ParametrosDeEpisodiosTest#mapasSaoCopiasImutaveis'
+mvn test '-Dtest=ParametrosDeEpisodiosTest#comMediaEntreEpisodiosTrocaSoAMedia'
+mvn test '-Dtest=ParametrosDeEpisodiosTest#comProbabilidadeDeCriseTrocaSoAProbabilidade'
+```
+
+### CicloDeEpisodiosTest
+```powershell
+mvn test '-Dtest=CicloDeEpisodiosTest#fasesVemEmOrdemEComDuracoesDentroDasFaixas'
+mvn test '-Dtest=CicloDeEpisodiosTest#episodiosNuncaSeSobrepoemEHaPeloMenosUmaLeituraNormalEntreEles'
+mvn test '-Dtest=CicloDeEpisodiosTest#mesmaSementeGeraMesmaSequenciaDeEpisodios'
+mvn test '-Dtest=CicloDeEpisodiosTest#tempoNormalEntreEpisodiosFicaPertoDaMediaConfigurada'
+mvn test '-Dtest=CicloDeEpisodiosTest#mediaMenorGeraEpisodiosMaisFrequentes'
+mvn test '-Dtest=CicloDeEpisodiosTest#severidadesSeguemOsPesos'
+mvn test '-Dtest=CicloDeEpisodiosTest#fracaoDeEpisodiosQuePassamDoLimiteSegueAProbabilidadeDeCrise'
+mvn test '-Dtest=CicloDeEpisodiosTest#velocidadeSoTemEpisodiosAcima'
+mvn test '-Dtest=CicloDeEpisodiosTest#temperaturaSobeNaMaioriaDosEpisodios'
+mvn test '-Dtest=CicloDeEpisodiosTest#semRampasACriseComecaNoMesmoPassoDoAquecimento'
+mvn test '-Dtest=CicloDeEpisodiosTest#antesDeAvancarNaoHaEpisodioNemPasso'
+mvn test '-Dtest=CicloDeEpisodiosTest#contaEpisodiosIniciados'
+mvn test '-Dtest=CicloDeEpisodiosTest#episodioValidaAsDatasDasFases'
+```
+
+### GeradorPorEventosDiscretosTest
+```powershell
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#foraDaCriseNuncaGeraAlertaNemNoAquecimentoNemNoEsfriamento'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#criseQuePassaDoLimiteAlertaEmTodaLeituraEOPicoEhASeveridadeAlvo'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#criseQueNaoPassaDoLimiteFicaLogoAntesDeleSemAlerta'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#aquecimentoSobeAteOLimiteEEsfriamentoComecaPertoDele'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#pulosEntreLeiturasSeguidasSaoModeradosEnquantoNoGeradorAntigoNao'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#comProbabilidadeDeCriseUmCadaCriseViraExatamenteUmaRajadaDeAlertas'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#alertasVemEmRajadasEnquantoNoGeradorAntigoVinhamIsolados'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#taxaDeAlertasFicaPertoDaEsperada'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#velocidadeNuncaFicaAbaixoDaFaixa'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#mesmaSementeGeraMesmaSerie'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#valoresSaoFinitosComNoMaximoUmaCasaDecimal'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#relogioSimuladoAvancaUmPassoPorLeitura'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#rejeitaEscalaQueNaoSejaBaixaMediaAltaCriticaEmOrdem'
+mvn test '-Dtest=GeradorPorEventosDiscretosTest#fabricaUsaAsFaixasDoAnalisadorSemDuplicarNumeros'
+```
+
 ### FilaDeLeiturasTest
 ```powershell
 mvn test '-Dtest=FilaDeLeiturasTest#capacidadePadraoEConfiguravel'
@@ -120,6 +184,7 @@ mvn test '-Dtest=FormatoMensagensTest#extratoDestacaProblemas'
 mvn test '-Dtest=FormatoMensagensTest#extratoLimpo'
 mvn test '-Dtest=FormatoMensagensTest#duracao'
 mvn test '-Dtest=FormatoMensagensTest#decimalCompacto'
+mvn test '-Dtest=FormatoMensagensTest#resumoEpisodios'
 ```
 
 ### ProcessadorDeLeiturasTest
@@ -158,6 +223,9 @@ mvn test '-Dtest=ControladorTelemetriaTest#buscarAlertasConverteOPeriodoEmInstan
 mvn test '-Dtest=ControladorTelemetriaTest#bancoForaDoArNaoPerdeLeiturasEExtratoMostraAlertasNaoGravados'
 mvn test '-Dtest=ControladorTelemetriaTest#consoleMostraInicioAlertasEEncerramentoMasNaoLeiturasNormais'
 mvn test '-Dtest=ControladorTelemetriaTest#exportarExtratoGravaArquivoUtf8'
+mvn test '-Dtest=ControladorTelemetriaTest#parametrosDeEpisodiosSoMudamComOSistemaParado'
+mvn test '-Dtest=ControladorTelemetriaTest#alertasDaExecucaoRealVemEmRajadasPorSensor'
+mvn test '-Dtest=ControladorTelemetriaTest#consoleAnunciaASimulacaoPorEventosDiscretos'
 ```
 
 ### TesteDeEstresse

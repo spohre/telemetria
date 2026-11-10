@@ -2,6 +2,7 @@ package app;
 
 import domain.Alerta;
 import domain.LeituraTelemetria;
+import domain.ParametrosDeEpisodios;
 import domain.Severidade;
 import domain.TipoSensor;
 
@@ -143,6 +144,25 @@ public final class FormatoMensagens {
         nf.setMinimumFractionDigits(1);
         nf.setMaximumFractionDigits(2);
         return nf.format(valor);
+    }
+
+    /**
+     * Linha de console que explica a simulação de valores: tempo normal entre episódios (em
+     * segundos, pelo intervalo dos sensores, e em leituras) e a duração de cada fase.
+     */
+    public static String resumoEpisodios(ParametrosDeEpisodios p, int intervaloMs) {
+        double s = intervaloMs / 1000.0;
+        return "Simulação por eventos discretos: ~" + decimalCompacto(p.mediaEntreEpisodios() * s) + " s normais ("
+                + inteiro(Math.round(p.mediaEntreEpisodios())) + " leituras) em média entre episódios; "
+                + "cada episódio aquece " + faixaEmSegundos(p.aquecimentoMinimo(), p.aquecimentoMaximo(), s)
+                + ", fica em crise " + faixaEmSegundos(p.duracaoMinima(), p.duracaoMaxima(), s)
+                + " (passa do limite em " + inteiro(Math.round(p.probabilidadeDeCrise() * 100)) + " % deles)"
+                + " e esfria " + faixaEmSegundos(p.esfriamentoMinimo(), p.esfriamentoMaximo(), s);
+    }
+
+    private static String faixaEmSegundos(int minimoLeituras, int maximoLeituras, double segundosPorLeitura) {
+        return decimalCompacto(minimoLeituras * segundosPorLeitura) + " a "
+                + decimalCompacto(maximoLeituras * segundosPorLeitura) + " s";
     }
 
     public static String inteiro(long valor) {

@@ -132,7 +132,13 @@ src/main/
     AnalisadorDeAnomalias.java    (regra pura)
     Sensor.java                   (implements Runnable)
     GeradorDeValores.java         (interface)
-    GeradorPasseioAleatorio.java  (simulação com Random injetável)
+    GeradorPasseioAleatorio.java  (passeio aleatório na faixa; usado dentro do gerador por eventos)
+    GeradorPorEventosDiscretos.java (gerador padrão: simulação de eventos discretos — seção 5)
+    CicloDeEpisodios.java         (relógio simulado + agenda: decide QUANDO há episódio)
+    AgendaDeEventos.java          (PriorityQueue de eventos, ordem por passo)
+    EventoDeSimulacao.java        (record: passo, tipo do evento, ordem)
+    EpisodioDeAnomalia.java       (record: datas das 3 fases, severidade-alvo, direção, passaDoLimite)
+    ParametrosDeEpisodios.java    (record: médias, durações, pesos — padrões num só lugar)
     PublicadorDeLeituras.java     (porta: o Sensor só conhece isto)
     RepositorioDeAlertas.java     (porta: o consumidor só conhece isto)
   infra/                          detalhes técnicos
@@ -162,7 +168,7 @@ src/main/
 src/resources/
   schema.sql, consultas.sql, db.properties, fontes/ (DM Sans, licença OFL)
 src/test/
-  domain/   (AnalisadorDeAnomalias, Sensor, Leitura, Gerador)
+  domain/   (AnalisadorDeAnomalias, Sensor, Leitura, Geradores, Agenda, Ciclo, Parâmetros)
   infra/    (FilaDeLeituras, LogArquivo, AlertaRepository — integração com H2 em memória)
   app/      (Processador, Controlador, FormatoMensagens, Dubles)
   estresse/ (TesteDeEstresse — @Tag("estresse"), fora do mvn test padrão)
@@ -265,6 +271,37 @@ até 5 % BAIXA · até 15 % MEDIA · até 30 % ALTA · acima disso CRITICA.
   + `notifyAll()`); a pausa também termina ao ser interrompida.
 - Contador de leituras produzidas (`AtomicLong`).
 
+### Geração de valores por eventos discretos (domain)
+Feedback do professor (10/11): "usar simulação de eventos discretos para criar os valores dos
+sensores; de maneira mais simples, criar intervalos onde a possibilidade de alertas aconteça".
+- `CicloDeEpisodios`: relógio simulado em **passos** (1 passo = 1 leitura = 1 intervalo do sensor)
+  e `AgendaDeEventos` (`PriorityQueue`, empate pela ordem de agendamento). Fases
+  NORMAL → AQUECENDO → CRISE → ESFRIANDO → NORMAL, com os eventos INICIO_AQUECIMENTO,
+  INICIO_EPISODIO, FIM_EPISODIO e FIM_ESFRIAMENTO. INICIO_AQUECIMENTO planeja o episódio inteiro
+  (severidade-alvo pelos pesos, direção por tipo, se passa do limite, duração de cada fase,
+  uniformes); FIM_ESFRIAMENTO agenda o próximo após intervalo exponencial (≥ 1 passo: nunca
+  sobrepõe). `episodioAtual()` = só na CRISE; `episodioEmAndamento()` = qualquer fase; `fase()`.
+- `GeradorPorEventosDiscretos implements GeradorDeValores` — perfil de valores (pedido do aluno,
+  10/11: "aquecimento e esfriamento antes e depois dos alertas, pulos mas nada exagerado"):
+  NORMAL = passeio aleatório na faixa; AQUECENDO = linha reta do passeio até logo antes do limite
+  (folga de 0,5 %–5 % da largura); CRISE = cruza o limite, sobe até o pico (miolo 20–80 % do
+  degrau da severidade-alvo; CRITICA 1×–1,5× o teto de ALTA) em ~1/3 da crise, fica no pico
+  (≥ 1 leitura), desce em ~1/3 (`fracaoDoPico`); toda leitura da crise fica fora da faixa.
+  Episódio que não passa do limite (quase-incidente) fica logo antes dele, sem alerta;
+  ESFRIANDO = linha reta de logo antes do limite até o passeio. Faixas e degraus vêm de
+  `AnalisadorDeAnomalias.regraDo/escala` (`GeradorPorEventosDiscretos.para(...)`).
+- O gerador NÃO decide alerta (só mira); o analisador continua a única autoridade.
+- `ParametrosDeEpisodios.padrao()`: 50 passos normais em média entre episódios; aquecimento
+  6–12, crise 6–14, esfriamento 6–12; `probabilidadeDeCrise` 0,8 (fração de episódios que
+  passam do limite); pesos BAIXA 40 · MEDIA 30 · ALTA 20 · CRITICA 10; acima: TEMPERATURA 0,8,
+  VELOCIDADE 1,0 (obrigatório: abaixo de 0 km/h não existe), PRESSAO 0,5, UMIDADE 0,5.
+  Resultado medido: ~10,3 % de alertas, 10 alertas seguidos em média (antes ~5 % e 1,05);
+  99 % das variações entre leituras seguidas abaixo de 13 % da faixa, maior ~23 %.
+- Concorrência: um gerador por sensor, usado só pela thread dele (confinamento) — sem lock.
+  Ao religar, `join` → `start` publica o estado para a thread nova.
+- Mesma semente → mesma série (testes). Em produção `new Random()` por sensor: cada execução
+  é diferente. Não usar semente fixa derivada do id (toda execução sairia igual).
+
 ### FilaDeLeituras (infra)
 `implements PublicadorDeLeituras`. Envolve um `ArrayBlockingQueue` (padrão 1000).
 - `publicar()` usa `put()` (bloqueia quando cheia → nenhuma leitura descartada).
@@ -321,14 +358,19 @@ repository e log.
   `estadosSensores()` não usa lock (pode ser chamado na EDT).
 - `parar()`: sequência de encerramento da seção 7; devolve o `ExtratoExecucao`.
 - `aplicarConfiguracao` só com o sistema PARADO.
+- Cada sensor recebe `GeradorPorEventosDiscretos.para(analisador, tipo, parametrosEpisodios,
+  new Random())`. `parametrosEpisodios()` / `aplicarParametrosEpisodios` (só PARADO; fora da
+  interface `ControladorMonitoramento`, a tela não usa). Ao iniciar imprime uma linha INFO
+  com `FormatoMensagens.resumoEpisodios(...)`.
 - Métodos de ciclo de vida `synchronized` só para não rodarem dois ao mesmo tempo;
   nenhuma thread de trabalho usa esse lock.
 
 ### Main (app)
 Ponto de montagem. Prepara o banco (falha de banco não impede a execução) e:
 - sem argumentos: abre a interface na EDT (`Tema.instalar()` + `JanelaPrincipal`);
-- `--console [segundos] [--sensores N] [--intervalo MS] [--consumidores N] [--fila N]`:
-  roda sem janela, imprime o console, para, grava e imprime o extrato.
+- `--console [segundos] [--sensores N] [--intervalo MS] [--consumidores N] [--fila N]
+  [--episodio-medio SEGUNDOS]`: roda sem janela, imprime o console, para, grava e imprime o
+  extrato. `--episodio-medio` é convertido em passos pelo intervalo.
 
 ### Interface Swing (app/ui)
 - Só chama `ControladorMonitoramento`; recebe dados pelo `OuvinteTelemetria`.
@@ -500,8 +542,8 @@ Regras:
 ## 10. TESTES
 
 Mínimo exigido: 5 testes JUnit das regras de anomalia, sem threads nem banco.
-Situação atual: ~97 métodos `@Test` (23 no `AnalisadorDeAnomaliasTest`,
-alguns parametrizados), mais o teste de estresse.
+Situação atual (10/11): 193 execuções de teste contando os parametrizados (25 métodos no
+`AnalisadorDeAnomaliasTest`), mais o teste de estresse (15 rodadas).
 
 Ferramentas de teste:
 
@@ -518,6 +560,26 @@ Testes unitários prioritários (regras de anomalia — sustentam os 0,5 ponto):
 3. Cada fronteira de severidade (5 %, 15 %, 30 %) cai no degrau certo.
 4. O alerta carrega sensor, tipo, valor, momento, severidade e regra legível.
 5. `LeituraTelemetria` rejeita valor não finito e id vazio.
+
+Testes da simulação por eventos discretos (sem threads, `Random` com semente):
+
+- `AgendaDeEventosTest`: ordem por passo; empate pela ordem de agendamento; não entrega futuros;
+  evento agendado pelo tratador na janela sai na mesma chamada; não agenda no passado; relógio não volta.
+- `ParametrosDeEpisodiosTest`: padrões; validações (média, durações das 3 fases, crise ≥ 2,
+  probabilidade de crise, pesos, direção); velocidade só acima; mapas imutáveis.
+- `CicloDeEpisodiosTest`: fases em ordem e coerentes com as datas a cada passo; durações nas
+  faixas; episódios nunca se sobrepõem; mesma semente → mesmos episódios; tempo normal médio
+  ±5 %; severidades seguem os pesos ±3 pp; fração que passa do limite ±3 pp; velocidade só
+  ACIMA; temperatura ~80 % ACIMA; sem rampas a crise começa junto do aquecimento.
+- `GeradorPorEventosDiscretosTest` (analisador como oráculo): fora da crise nunca há alerta
+  (nem aquecendo nem esfriando); crise que passa do limite alerta em toda leitura, severidade
+  ≤ alvo e pico = alvo; quase-incidente fica logo antes do limite sem alerta; aquecimento
+  termina logo antes do limite e esfriamento começa dentro da faixa; pulos: 99 % ≤ 15 % da
+  faixa e maior ≤ 30 % (antigo > 40 %); com probabilidade 1 cada crise = uma rajada; rajada
+  média ≥ 6 (antigo < 1,2); taxa de alertas ≈ esperada ±1 pp; velocidade ≥ 0; mesma semente →
+  mesma série; valores finitos com 1 casa; escala validada.
+- `ControladorTelemetriaTest`: parâmetros só mudam PARADO; no sistema real os alertas vêm em
+  rajadas (≥ 2 por rajada); console anuncia a simulação.
 
 Testes de concorrência (unitários, com threads, sem rede nem banco real):
 
@@ -682,10 +744,13 @@ SEMANA 4 · 27/out–02/nov · Log, persistência e controlador ✅
 - `LogArquivo` (escritor único), `AlertaRepository.buscar`, `ControladorTelemetria`, `Main`.
 - ★ MARCO: NÚCLEO OBRIGATÓRIO COMPLETO.
 
-SEMANA 5 · 03–09/nov · Estresse e ajustes de interface ← **semana atual**
+SEMANA 5 · 03–09/nov · Estresse e ajustes de interface ✅
 - `TesteDeEstresse` (zero perdidas, sem deadlock); ajustes visuais da interface.
 
-SEMANA 6 · 10–16/nov · Revisão e entregáveis
+SEMANA 6 · 10–16/nov · Revisão e entregáveis ← **semana atual**
+- 10/11: feedback do professor atendido — valores por simulação de eventos discretos
+  (seção 5), com aquecimento e esfriamento; crises mais frequentes (média normal 80 → 50 leituras); relatório, entregáveis de exemplo e
+  `docs/estresse.md` refeitos.
 - Skill `revisor-telemetria`; corrigir CRÍTICO/IMPORTANTE; prova de persistência;
   `entregaveis/` completo.
 
