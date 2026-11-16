@@ -1,6 +1,7 @@
 package app;
 
 import domain.Alerta;
+import domain.ConfiguracaoSensores;
 import domain.LeituraTelemetria;
 import domain.ParametrosDeEpisodios;
 import domain.Severidade;
@@ -56,8 +57,8 @@ class FormatoMensagensTest {
     @Test
     @DisplayName("extrato destaca leituras perdidas e divergência com o banco")
     void extratoDestacaProblemas() {
-        var cfg = new ConfiguracaoSimulacao(1, 200, 1);
-        var e = new ExtratoExecucao(T, T.plusSeconds(28), cfg, 1204, 1200,
+        var cfg = new ConfiguracaoSimulacao(1);
+        var e = new ExtratoExecucao(T, T.plusSeconds(28), cfg, ConfiguracaoSensores.padrao(), 1204, 1200,
                 Map.of(TipoSensor.TEMPERATURA, Map.of(Severidade.ALTA, 9L)), 8, "data/leituras.log", "jdbc:h2:x");
         String texto = FormatoMensagens.extrato(e);
         assertEquals(4, e.leiturasPerdidas());
@@ -69,7 +70,7 @@ class FormatoMensagensTest {
     @Test
     @DisplayName("extrato sem problemas não tem destaque")
     void extratoLimpo() {
-        var e = new ExtratoExecucao(T, T.plusSeconds(5), new ConfiguracaoSimulacao(1, 200, 1), 10, 10,
+        var e = new ExtratoExecucao(T, T.plusSeconds(5), new ConfiguracaoSimulacao(1), ConfiguracaoSensores.padrao(), 10, 10,
                 Map.of(), 0, "log", "banco");
         assertFalse(FormatoMensagens.extrato(e).contains("VERIFICAR"));
     }
@@ -135,11 +136,61 @@ class FormatoMensagensTest {
     @Test
     @DisplayName("início e fim da execução são lidos de volta do extrato e do nome do arquivo")
     void periodoDoExtratoIdaEVolta() {
-        var e = new ExtratoExecucao(T, T.plusSeconds(28), new ConfiguracaoSimulacao(1, 200, 1), 10, 10,
+        var e = new ExtratoExecucao(T, T.plusSeconds(28), new ConfiguracaoSimulacao(1), ConfiguracaoSensores.padrao(), 10, 10,
                 Map.of(), 0, "log", "banco");
         assertEquals(T.truncatedTo(ChronoUnit.SECONDS), FormatoMensagens.inicioDoExtrato(FormatoMensagens.extrato(e)).orElseThrow());
         assertEquals(e.fim().truncatedTo(ChronoUnit.SECONDS),
                 FormatoMensagens.fimDoArquivoExtrato(FormatoMensagens.nomeArquivoExtrato(e.fim())).orElseThrow());
         assertTrue(FormatoMensagens.fimDoArquivoExtrato("data/leituras.log").isEmpty());
+    }
+
+    @Test
+    @DisplayName("resumo das faixas no console: uma por sensor, separador ASCII, marca a própria")
+    void resumoFaixas() {
+        var cfg = ConfiguracaoSensores.padrao().comSensorNovo(TipoSensor.TEMPERATURA).comFaixaDoSensor("TEMP-02", 10, 60);
+        String linha = FormatoMensagens.resumoFaixas(cfg);
+        assertEquals("Faixas aceitas: TEMP-01 0,0 a 80,0 °C | VEL-01 0,0 a 120,0 km/h | PRES-01 1,0 a 8,0 bar"
+                + " | UMID-01 20,0 a 90,0 % | TEMP-02 10,0 a 60,0 °C (propria)", linha);
+        assertFalse(linha.contains("·"), "cmd do Windows troca · por ?");
+    }
+
+    @Test
+    @DisplayName("extrato lista a faixa de cada sensor e conta os sensores da configuração")
+    void extratoComFaixasPorSensor() {
+        var cfg = ConfiguracaoSensores.padrao().comSensorNovo(TipoSensor.TEMPERATURA).comFaixaDoSensor("TEMP-02", 10, 60);
+        var e = new ExtratoExecucao(T, T.plusSeconds(5), new ConfiguracaoSimulacao(2), cfg, 10, 10,
+                Map.of(), 0, "log", "banco");
+        String texto = FormatoMensagens.extrato(e);
+        assertTrue(texto.contains("5 sensores · 2 consumidor(es) · intervalo 200 ms"), texto);
+        assertTrue(texto.contains("FAIXAS ACEITAS (por sensor)"), texto);
+        assertTrue(texto.contains("TEMP-01       0,0 a 80,0 °C\n"), texto);
+        assertTrue(texto.contains("TEMP-02       10,0 a 60,0 °C   (diferente do padrão do tipo)"), texto);
+        assertEquals(T.truncatedTo(ChronoUnit.SECONDS), FormatoMensagens.inicioDoExtrato(texto).orElseThrow(),
+                "início continua legível");
+    }
+
+    @Test
+    @DisplayName("número digitado na tela: vírgula ou ponto, sinal e milhar pt-BR")
+    void lerNumero() {
+        assertEquals(12.5, FormatoMensagens.lerNumero("12,5").orElseThrow());
+        assertEquals(12.5, FormatoMensagens.lerNumero("12.5").orElseThrow());
+        assertEquals(-3.0, FormatoMensagens.lerNumero("  -3 ").orElseThrow());
+        assertEquals(1050.5, FormatoMensagens.lerNumero("1.050,5").orElseThrow());
+        assertEquals(80.0, FormatoMensagens.lerNumero(FormatoMensagens.decimalCompacto(80)).orElseThrow(),
+                "lê de volta o que a tela mostra");
+        assertTrue(FormatoMensagens.lerNumero("").isEmpty());
+        assertTrue(FormatoMensagens.lerNumero("abc").isEmpty());
+        assertTrue(FormatoMensagens.lerNumero("1,2,3").isEmpty());
+        assertTrue(FormatoMensagens.lerNumero("NaN").isEmpty());
+        assertTrue(FormatoMensagens.lerNumero("Infinity").isEmpty());
+        assertTrue(FormatoMensagens.lerNumero(null).isEmpty());
+    }
+
+    @Test
+    @DisplayName("escala de severidade em texto, na unidade do sensor")
+    void textoEscala() {
+        var escala = domain.AnalisadorDeAnomalias.escalaPara(new domain.RegraDeAnomalia(TipoSensor.TEMPERATURA, 10, 60));
+        assertEquals("até 2,5 BAIXA · 7,5 MEDIA · 15,0 ALTA · mais CRITICA (°C)",
+                FormatoMensagens.textoEscala(escala, TipoSensor.TEMPERATURA));
     }
 }

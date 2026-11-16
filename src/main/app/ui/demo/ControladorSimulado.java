@@ -12,6 +12,8 @@ import app.LeituraRegistrada;
 import app.OuvinteTelemetria;
 import app.RegraExibida;
 import domain.Alerta;
+import domain.ConfiguracaoSensores;
+import domain.SensorConfigurado;
 import domain.LeituraTelemetria;
 import domain.Severidade;
 import domain.TipoSensor;
@@ -43,13 +45,12 @@ import java.util.concurrent.atomic.AtomicLong;
 public class ControladorSimulado implements ControladorMonitoramento {
 
     private static final int CAPACIDADE = 1000;
-    private static final String[] PREFIXO = {"TEMP", "VEL", "PRES", "UMID"};
-
-    private final List<RegraExibida> regras = List.of(
-            new RegraExibida(TipoSensor.TEMPERATURA, 0, 80, Severidade.ALTA),
-            new RegraExibida(TipoSensor.VELOCIDADE, 0, 120, Severidade.MEDIA),
-            new RegraExibida(TipoSensor.PRESSAO, 1, 6, Severidade.CRITICA),
-            new RegraExibida(TipoSensor.UMIDADE, 20, 90, Severidade.BAIXA));
+    /** Severidade fixa por tipo (o simulado não calcula a escala). */
+    private static final Map<TipoSensor, Severidade> SEVERIDADE = Map.of(
+            TipoSensor.TEMPERATURA, Severidade.ALTA,
+            TipoSensor.VELOCIDADE, Severidade.MEDIA,
+            TipoSensor.PRESSAO, Severidade.CRITICA,
+            TipoSensor.UMIDADE, Severidade.BAIXA);
     private final List<Alerta> banco = new CopyOnWriteArrayList<>();
     private final AtomicLong proximoId = new AtomicLong(1);
     private final AtomicLong produzidas = new AtomicLong();
@@ -58,7 +59,9 @@ public class ControladorSimulado implements ControladorMonitoramento {
 
     private volatile OuvinteTelemetria ouvinte;
     private volatile FaseSistema fase = FaseSistema.PARADO;
-    private volatile ConfiguracaoSimulacao config = new ConfiguracaoSimulacao(1, 400, 1);
+    private volatile ConfiguracaoSimulacao config = new ConfiguracaoSimulacao(1);
+    /** Sensores e faixas — só em memória (o real grava no banco). */
+    private volatile ConfiguracaoSensores sensoresCfg = ConfiguracaoSensores.padrao().comIntervalo(400);
     private volatile Instant inicio;
     private ScheduledExecutorService sensores;
     private ExecutorService consumidores;
@@ -91,12 +94,14 @@ public class ControladorSimulado implements ControladorMonitoramento {
 
     private Map<String, TipoSensor> sensoresDaConfiguracao() {
         Map<String, TipoSensor> r = new java.util.TreeMap<>();
-        for (TipoSensor tipo : TipoSensor.values()) {
-            for (int i = 1; i <= config.sensoresPorTipo(); i++) {
-                r.put(String.format("%s-%02d", PREFIXO[tipo.ordinal()], i), tipo);
-            }
-        }
+        sensoresCfg.sensores().forEach(sc -> r.put(sc.id(), sc.tipo()));
         return r;
+    }
+
+    /** Faixa do sensor (ou padrão do tipo) com a severidade fixa do simulado. */
+    private RegraExibida regraDe(String id, TipoSensor tipo) {
+        var f = sensoresCfg.regraDo(id).filter(r -> r.tipo() == tipo).orElse(sensoresCfg.padraoDo(tipo));
+        return new RegraExibida(tipo, f.minimo(), f.maximo(), SEVERIDADE.get(tipo));
     }
 
     private void iniciarExecucao(java.util.function.Predicate<String> ligar) {
@@ -108,7 +113,7 @@ public class ControladorSimulado implements ControladorMonitoramento {
         tipos.clear();
         pausados.clear();
         inicio = Instant.now();
-        int total = config.sensoresPorTipo() * TipoSensor.values().length;
+        int total = sensoresCfg.sensores().size();
         sensores = Executors.newScheduledThreadPool(total + 1);
         consumidores = Executors.newFixedThreadPool(config.consumidores());
 
@@ -121,20 +126,20 @@ public class ControladorSimulado implements ControladorMonitoramento {
         fase = FaseSistema.EXECUTANDO;
         System.out.println(FormatoMensagens.console(Instant.now(), FormatoMensagens.Nivel.INFO, "sistema",
                 total + " sensores e " + config.consumidores() + " consumidor(es) iniciados (intervalo "
-                        + config.intervaloMs() + " ms)"));
+                        + sensoresCfg.intervaloMs() + " ms)"));
     }
 
     private void agendar(String id) {
         TipoSensor tipo = tipos.get(id);
         tarefas.put(id, sensores.scheduleAtFixedRate(() -> produzir(id, tipo),
-                ThreadLocalRandom.current().nextInt(50), config.intervaloMs(), TimeUnit.MILLISECONDS));
+                ThreadLocalRandom.current().nextInt(50), sensoresCfg.intervaloMs(), TimeUnit.MILLISECONDS));
     }
 
     private void produzir(String id, TipoSensor tipo) {
         if (fase != FaseSistema.EXECUTANDO || pausados.contains(id)) {
             return;
         }
-        RegraExibida r = regras.get(tipo.ordinal());
+        RegraExibida r = regraDe(id, tipo);
         double amplitude = r.maximo() - r.minimo();
         double v = r.minimo() + amplitude * (0.55 + ThreadLocalRandom.current().nextGaussian() * 0.22);
         try {
@@ -149,7 +154,7 @@ public class ControladorSimulado implements ControladorMonitoramento {
         try {
             while (true) {
                 LeituraTelemetria l = fila.take();
-                RegraExibida r = regras.get(l.tipo().ordinal());
+                RegraExibida r = regraDe(l.sensorId(), l.tipo());
                 Alerta alerta = null;
                 if (l.valor() < r.minimo() || l.valor() > r.maximo()) {
                     String regra = l.valor() > r.maximo()
@@ -176,7 +181,7 @@ public class ControladorSimulado implements ControladorMonitoramento {
         OuvinteTelemetria o = ouvinte;
         if (o != null && inicio != null) {
             o.aoAtualizarEstatisticas(new EstatisticasExecucao(produzidas.get(), processadas.get(), fila.size(),
-                    CAPACIDADE, banco.size(), config.sensoresPorTipo() * 4 + config.consumidores(), true,
+                    CAPACIDADE, banco.size(), sensoresCfg.sensores().size() + config.consumidores(), true,
                     java.time.Duration.between(inicio, Instant.now()).toSeconds()));
         }
     }
@@ -207,7 +212,7 @@ public class ControladorSimulado implements ControladorMonitoramento {
         fase = FaseSistema.PARADO;
         Map<TipoSensor, Map<Severidade, Long>> copia = new EnumMap<>(TipoSensor.class);
         contagem.forEach((t, m) -> copia.put(t, new EnumMap<>(m)));
-        ExtratoExecucao e = new ExtratoExecucao(inicio, Instant.now(), config, produzidas.get(), processadas.get(),
+        ExtratoExecucao e = new ExtratoExecucao(inicio, Instant.now(), config, sensoresCfg, produzidas.get(), processadas.get(),
                 copia, copia.values().stream().flatMap(m -> m.values().stream()).mapToLong(Long::longValue).sum(),
                 "data/leituras.log", "(simulado em memória)");
         System.out.println(FormatoMensagens.console(Instant.now(), FormatoMensagens.Nivel.INFO, "sistema",
@@ -313,7 +318,53 @@ public class ControladorSimulado implements ControladorMonitoramento {
 
     @Override
     public List<RegraExibida> regras() {
-        return regras;
+        return sensoresCfg.padroes().values().stream()
+                .map(f -> new RegraExibida(f.tipo(), f.minimo(), f.maximo(), SEVERIDADE.get(f.tipo()))).toList();
+    }
+
+    // ---- configuração dos sensores: só em memória, com uma pequena espera para simular o banco
+
+    @Override
+    public ConfiguracaoSensores configuracaoSensores() {
+        return sensoresCfg;
+    }
+
+    @Override
+    public synchronized ConfiguracaoSensores adicionarSensor(TipoSensor tipo) {
+        return trocar(exigirParado().comSensorNovo(tipo));
+    }
+
+    @Override
+    public synchronized ConfiguracaoSensores removerSensor(String id) {
+        return trocar(exigirParado().semSensor(id));
+    }
+
+    @Override
+    public synchronized ConfiguracaoSensores alterarFaixaSensor(String id, double minimo, double maximo) {
+        return trocar(exigirParado().comFaixaDoSensor(id, minimo, maximo));
+    }
+
+    @Override
+    public synchronized ConfiguracaoSensores alterarFaixaPadrao(TipoSensor tipo, double minimo, double maximo) {
+        return trocar(exigirParado().comFaixaPadrao(tipo, minimo, maximo));
+    }
+
+    @Override
+    public synchronized ConfiguracaoSensores alterarIntervalo(int intervaloMs) {
+        return trocar(exigirParado().comIntervalo(intervaloMs));
+    }
+
+    private ConfiguracaoSensores exigirParado() {
+        if (fase != FaseSistema.PARADO) {
+            throw new IllegalStateException("Pare o sistema para alterar as configurações dos sensores");
+        }
+        return sensoresCfg;
+    }
+
+    private ConfiguracaoSensores trocar(ConfiguracaoSensores nova) {
+        dormir(200);
+        sensoresCfg = nova;
+        return nova;
     }
 
     @Override
@@ -353,13 +404,14 @@ public class ControladorSimulado implements ControladorMonitoramento {
         Instant fim = Instant.now().minusSeconds(600);
         Instant inicio = fim.minusSeconds(180);
         java.util.Random rnd = new java.util.Random(7);
-        for (TipoSensor tipo : TipoSensor.values()) {
-            RegraExibida r = regras.get(tipo.ordinal());
+        for (SensorConfigurado sc : sensoresCfg.sensores()) {
+            TipoSensor tipo = sc.tipo();
+            String id = sc.id();
+            RegraExibida r = regraDe(id, tipo);
             double amplitude = r.maximo() - r.minimo();
-            for (int i = 1; i <= config.sensoresPorTipo(); i++) {
-                String id = String.format("%s-%02d", PREFIXO[tipo.ordinal()], i);
+            {
                 double v = r.minimo() + amplitude * 0.55;
-                for (Instant t = inicio; t.isBefore(fim); t = t.plusMillis(config.intervaloMs())) {
+                for (Instant t = inicio; t.isBefore(fim); t = t.plusMillis(sensoresCfg.intervaloMs())) {
                     v += rnd.nextGaussian() * amplitude * 0.03 + (r.minimo() + amplitude * 0.55 - v) * 0.02;
                     double lido = Math.round(v * 10) / 10.0;
                     Severidade sev = lido < r.minimo() || lido > r.maximo() ? r.severidade() : null;

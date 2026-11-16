@@ -123,11 +123,13 @@ Arquitetura em camadas. Estrutura de pacotes (pastas enxutas, sem
 ```
 src/main/
   domain/                         regras e entidades — sem infraestrutura
-    TipoSensor.java               (enum: nome legível + unidade)
+    TipoSensor.java               (enum: nome legível + unidade + prefixo do id: TEMP, VEL, PRES, UMID)
     Severidade.java               (enum: BAIXA, MEDIA, ALTA, CRITICA)
     LeituraTelemetria.java        (record imutável, com sequencia)
     Alerta.java                   (record imutável, id nulo até ser salvo)
-    RegraDeAnomalia.java          (record: tipo, mínimo, máximo)
+    RegraDeAnomalia.java          (record: tipo, mínimo, máximo; faixas PADRÃO do projeto num só lugar)
+    SensorConfigurado.java        (record: id + faixa própria do sensor)
+    ConfiguracaoSensores.java     (record imutável: intervalo, faixa padrão por tipo, sensores em ordem)
     DegrauDeSeveridade.java       (record: severidade, desvio máximo)
     AnalisadorDeAnomalias.java    (regra pura)
     Sensor.java                   (implements Runnable)
@@ -141,9 +143,11 @@ src/main/
     ParametrosDeEpisodios.java    (record: médias, durações, pesos — padrões num só lugar)
     PublicadorDeLeituras.java     (porta: o Sensor só conhece isto)
     RepositorioDeAlertas.java     (porta: o consumidor só conhece isto)
+    RepositorioDeConfiguracao.java (porta: carregar/salvar a ConfiguracaoSensores)
   infra/                          detalhes técnicos
     FilaDeLeituras.java           (implements PublicadorDeLeituras)
-    AlertaRepository.java         (implements RepositorioDeAlertas — único lugar com SQL)
+    AlertaRepository.java         (implements RepositorioDeAlertas — único lugar com SQL de alertas)
+    ConfiguracaoRepository.java   (implements RepositorioDeConfiguracao — único lugar com SQL de config_*)
     FabricaDeConexoes.java        (uma Connection por operação)
     InicializadorBanco.java       (executa schema.sql)
     LogArquivo.java               (implements RegistroDeLeituras — escritor único)
@@ -159,18 +163,20 @@ src/main/
     HistoricoExecucao.java, LeituraRegistrada.java (última execução lida do log, para os gráficos)
     EstadoSensor.java             (DESLIGADO, EXECUTANDO, PAUSADO)
     ContadoresExecucao.java, EstatisticasExecucao.java, ExtratoExecucao.java,
-    ConfiguracaoSimulacao.java, FaseSistema.java, FiltroAlertas.java, RegraExibida.java
+    ConfiguracaoSimulacao.java (só consumidores), FaseSistema.java, FiltroAlertas.java, RegraExibida.java
+    FalhaDeOperacao.java          (erro de infraestrutura com "o que aconteceu" + "o que fazer" para a tela)
+    Paginacao.java                (lógica pura da paginação dos cartões, 4 por página)
     Main.java                     (ponto de montagem; janela ou --console)
     ui/tema/                      Tema, Icones, Componentes, MensagemErro
     ui/telas/                     JanelaPrincipal, PainelMonitoramento, CartaoSensor, GraficoSensor,
-                                  PainelHistorico, PainelRegras, DialogoExtrato
+                                  PainelHistorico, PainelConfiguracoes, DialogoExtrato
     ui/demo/                      ControladorSimulado, DemoInterface (não contam como requisito)
 src/resources/
   schema.sql, consultas.sql, db.properties, fontes/ (DM Sans, licença OFL)
 src/test/
-  domain/   (AnalisadorDeAnomalias, Sensor, Leitura, Geradores, Agenda, Ciclo, Parâmetros)
-  infra/    (FilaDeLeituras, LogArquivo, AlertaRepository — integração com H2 em memória)
-  app/      (Processador, Controlador, FormatoMensagens, Dubles)
+  domain/   (AnalisadorDeAnomalias, ConfiguracaoSensores, Sensor, Leitura, Geradores, Agenda, Ciclo, Parâmetros)
+  infra/    (FilaDeLeituras, LogArquivo, AlertaRepository e ConfiguracaoRepository — integração com H2)
+  app/      (Processador, Controlador, FormatoMensagens, Paginacao, Dubles)
   estresse/ (TesteDeEstresse — @Tag("estresse"), fora do mvn test padrão)
 ```
 
@@ -205,7 +211,7 @@ Proibido:
 - `Sensor` conhecer banco, log ou `FilaDeLeituras` (só `PublicadorDeLeituras`);
 - `AnalisadorDeAnomalias` ter efeito colateral (gravar, logar, notificar);
 - telas Swing chamarem `AlertaRepository`, `LogArquivo` ou o analisador diretamente;
-- qualquer SQL fora de `infra/AlertaRepository` (e dos scripts `.sql`).
+- qualquer SQL fora de `infra/AlertaRepository` e `infra/ConfiguracaoRepository` (e dos scripts `.sql`).
 
 Inversão de dependência (portas no domínio, implementação na infra):
 
@@ -213,6 +219,7 @@ Inversão de dependência (portas no domínio, implementação na infra):
 Sensor ──────────────► PublicadorDeLeituras ◄── FilaDeLeituras
 ProcessadorDeLeituras ► RepositorioDeAlertas ◄── AlertaRepository
 ProcessadorDeLeituras ► RegistroDeLeituras  ◄── LogArquivo
+ControladorTelemetria ► RepositorioDeConfiguracao ◄── ConfiguracaoRepository
 Telas Swing ─────────► ControladorMonitoramento ◄── ControladorTelemetria / ControladorSimulado
 ```
 
@@ -245,22 +252,40 @@ Record imutável: `id`, `sensorId`, `tipo`, `valorLido`, `regraViolada`, `severi
 
 ### AnalisadorDeAnomalias (domain)
 Regra pura: recebe uma leitura e devolve `Optional<Alerta>`.
-- Faixas e limiares em um único lugar (nada de números mágicos espalhados).
-- `regras()` e `escala(tipo)` alimentam a aba Regras sem duplicar números.
-- `regraViolada` legível: `"acima do limite 80,0 °C"`.
+- **Faixa por sensor** (15/11): recebe a `ConfiguracaoSensores` no construtor e escolhe a faixa
+  pelo `sensorId` da leitura; sensor fora da configuração (ou de outro tipo) usa a faixa padrão
+  do tipo. Construtor sem argumentos = `ConfiguracaoSensores.padrao()`. Imutável: compartilhado
+  pelos consumidores sem lock; o controlador cria um por execução.
+- Faixas padrão em `RegraDeAnomalia`; limiares de severidade aqui (`escalaPara(faixa)`, estático).
+- `regras()` (padrões por tipo), `regraDo(tipo)`, `regraDo(id, tipo)`, `escala(tipo)`, `escala(id, tipo)`.
+- `regraViolada` legível: `"acima do limite 80,0 °C"` (limite DO SENSOR).
 - Sem thread, sem banco, sem log: por isso é testável com JUnit puro.
 
-Faixas aceitas (limites **inclusivos**: exatamente no limite = normal):
+Faixas padrão (limites **inclusivos**: exatamente no limite = normal) — ponto de partida de
+cada sensor; cada sensor pode ter a sua:
 
-| Tipo | Faixa aceita |
+| Tipo | Faixa padrão |
 |---|---|
 | TEMPERATURA | 0 – 80 °C |
 | VELOCIDADE | 0 – 120 km/h |
 | PRESSAO | 1 – 8 bar |
 | UMIDADE | 20 – 90 % |
 
-Severidade pelo desvio além do limite, em % da largura da faixa:
+Severidade pelo desvio além do limite, em % da largura da faixa DO SENSOR:
 até 5 % BAIXA · até 15 % MEDIA · até 30 % ALTA · acima disso CRITICA.
+
+### ConfiguracaoSensores / SensorConfigurado (domain)
+Record imutável: `intervaloMs` (10–5000), `padroes` (faixa padrão de cada tipo, ordem do enum) e
+`sensores` (`SensorConfigurado(id, regra)`, na ordem de criação). Valida tudo no construtor com
+mensagens prontas para a tela (mínimo < máximo, valores finitos, ids únicos, ≥ 1 sensor, um
+padrão por tipo).
+- `padrao()`: TEMP-01, VEL-01, PRES-01, UMID-01, 200 ms, faixas padrão do projeto.
+- `comSensorNovo(tipo)` (próximo id livre: TEMP-02…, com a faixa padrão VIGENTE),
+  `comFaixaDoSensor(id, min, max)`, `comFaixaPadrao(tipo, min, max)`, `comIntervalo(ms)`,
+  `semSensor(id)` (não remove o último), `comQuantidadePorTipo(n)` (modo console e testes) —
+  sempre devolvem uma instância nova.
+- **Mudar o padrão de um tipo NÃO altera os sensores existentes** (só os criados depois).
+- Consultas: `padraoDo(tipo)`, `sensoresDo(tipo)`, `regraDo(id)`, `proximoIdDo(tipo)`.
 
 ### Sensor (domain)
 `implements Runnable`. Campos: id (ex.: `TEMP-01`), tipo, intervalo, gerador, publicador, `Clock`.
@@ -288,8 +313,9 @@ sensores; de maneira mais simples, criar intervalos onde a possibilidade de aler
   degrau da severidade-alvo; CRITICA 1×–1,5× o teto de ALTA) em ~1/3 da crise, fica no pico
   (≥ 1 leitura), desce em ~1/3 (`fracaoDoPico`); toda leitura da crise fica fora da faixa.
   Episódio que não passa do limite (quase-incidente) fica logo antes dele, sem alerta;
-  ESFRIANDO = linha reta de logo antes do limite até o passeio. Faixas e degraus vêm de
-  `AnalisadorDeAnomalias.regraDo/escala` (`GeradorPorEventosDiscretos.para(...)`).
+  ESFRIANDO = linha reta de logo antes do limite até o passeio. Mira a faixa DO SENSOR:
+  `GeradorPorEventosDiscretos.para(regraDoSensor, parametros, random)`; degraus de
+  `AnalisadorDeAnomalias.escalaPara(faixa)`.
 - O gerador NÃO decide alerta (só mira); o analisador continua a única autoridade.
 - `ParametrosDeEpisodios.padrao()`: 50 passos normais em média entre episódios; aquecimento
   6–12, crise 6–14, esfriamento 6–12; `probabilidadeDeCrise` 0,8 (fração de episódios que
@@ -326,6 +352,15 @@ Consumidor, `implements Runnable`, um por thread `consumidor-<n>`.
 - `buscar(sensor, tipo, severidade, desde)`: parâmetros nulos = sem filtro;
   WHERE montado só com placeholders; mais recentes primeiro; limite de 1000.
 
+### ConfiguracaoRepository (infra)
+`implements RepositorioDeConfiguracao`. Único lugar com SQL de `config_geral`, `config_tipo`
+e `config_sensor`.
+- `salvar` grava a configuração INTEIRA numa transação (apaga e regrava as três tabelas;
+  rollback em qualquer erro, com a falha do rollback anexada como suprimida).
+- `carregar`: vazio sem sensores gravados (primeira execução); tipo sem linha em
+  `config_tipo` usa o padrão do projeto; dado inválido → `PersistenciaException` clara.
+- Mesmas regras do `AlertaRepository` (PreparedStatement, try-with-resources, uma conexão por operação).
+
 ### FabricaDeConexoes / InicializadorBanco (infra)
 - Uma `Connection` nova por operação; nunca compartilhada entre threads.
 - URL, usuário e senha de `db.properties`.
@@ -342,8 +377,18 @@ Consumidor, `implements Runnable`, um por thread `consumidor-<n>`.
 ### ControladorTelemetria (app)
 `implements ControladorMonitoramento`. Liga sensores, fila, consumidores, analisador,
 repository e log.
-- `iniciar()`: N sensores por tipo (`TEMP-01`, `VEL-01`, `PRES-01`, `UMID-01`…),
-  cada um na thread `sensor-<ID>`; consumidores primeiro; estatísticas a cada 1 s.
+- Recebe `RepositorioDeConfiguracao` no construtor e carrega a `ConfiguracaoSensores` ali
+  (vazia → `padrao()` e grava; banco fora do ar → padrão só em memória + AVISO no console).
+- `iniciar()`: um `Sensor` por `SensorConfigurado` (ids `TEMP-01`, `TEMP-02`…), cada um na thread
+  `sensor-<ID>`, com o intervalo da configuração e um `AnalisadorDeAnomalias` novo com a faixa de
+  cada sensor; consumidores primeiro; estatísticas a cada 1 s.
+- Configuração dos sensores (contrato da tela): `configuracaoSensores()`, `adicionarSensor(tipo)`,
+  `removerSensor(id)`,
+  `alterarFaixaSensor(id, min, max)`, `alterarFaixaPadrao(tipo, min, max)`, `alterarIntervalo(ms)`
+  — só PARADO (senão `IllegalStateException`), valor inválido → `IllegalArgumentException`,
+  GRAVA PRIMEIRO e só então troca em memória; banco sem gravar → `FalhaDeOperacao` e nada muda.
+  `regrasDosSensores()` (default no contrato) dá a faixa de cada sensor aos cartões e gráficos.
+  `usarSemGravar(cfg)` (fora do contrato): usado pelo `--console --sensores/--intervalo`.
 - `iniciar()` com o sistema parado liga todos; já em execução, liga os sensores desligados.
 - `pausar()`/`retomar()` delegam a todos os sensores.
 - `sensoresDisponiveis()`: id → tipo de todos os sensores (da execução ou, parado, da
@@ -358,10 +403,11 @@ repository e log.
   `estadosSensores()` não usa lock (pode ser chamado na EDT).
 - `parar()`: sequência de encerramento da seção 7; devolve o `ExtratoExecucao`.
 - `aplicarConfiguracao` só com o sistema PARADO.
-- Cada sensor recebe `GeradorPorEventosDiscretos.para(analisador, tipo, parametrosEpisodios,
+- Cada sensor recebe `GeradorPorEventosDiscretos.para(faixaDoSensor, parametrosEpisodios,
   new Random())`. `parametrosEpisodios()` / `aplicarParametrosEpisodios` (só PARADO; fora da
   interface `ControladorMonitoramento`, a tela não usa). Ao iniciar imprime uma linha INFO
-  com `FormatoMensagens.resumoEpisodios(...)`.
+  com `FormatoMensagens.resumoFaixas(...)` (faixa de cada sensor, "(propria)" quando difere do
+  padrão) e outra com `FormatoMensagens.resumoEpisodios(...)`.
 - Métodos de ciclo de vida `synchronized` só para não rodarem dois ao mesmo tempo;
   nenhuma thread de trabalho usa esse lock.
 
@@ -370,13 +416,18 @@ Ponto de montagem. Prepara o banco (falha de banco não impede a execução) e:
 - sem argumentos: abre a interface na EDT (`Tema.instalar()` + `JanelaPrincipal`);
 - `--console [segundos] [--sensores N] [--intervalo MS] [--consumidores N] [--fila N]
   [--episodio-medio SEGUNDOS]`: roda sem janela, imprime o console, para, grava e imprime o
-  extrato. `--episodio-medio` é convertido em passos pelo intervalo.
+  extrato. Usa a configuração GRAVADA; `--sensores` e `--intervalo` valem só para aquela execução
+  (`usarSemGravar`, não grava). `--episodio-medio` é convertido em passos pelo intervalo.
 
 ### Interface Swing (app/ui)
 - Só chama `ControladorMonitoramento`; recebe dados pelo `OuvinteTelemetria`.
 - Padrões visuais na skill `.claude/skills/designer-swing-telemetria/`
   (tema cinza-claro com destaque laranja, fonte DM Sans embutida, cartões de
-  sensor em grade; gráfico de cada sensor escondido até "Ver gráfico").
+  sensor em grade, 4 por página; gráfico de cada sensor escondido até "Ver gráfico").
+- Abas: Monitoramento · Histórico de alertas · **Configurações** (`PainelConfiguracoes`:
+  intervalo; LISTA com uma linha por tipo — seta para abrir, faixa padrão, [Salvar padrão],
+  [+ Adicionar sensor] — e, com o grupo aberto, uma linha recuada por sensor com a faixa dele,
+  [Salvar faixa] e [Remover]; seção Simulação só com consumidores). Gravações em `SwingWorker`; só PARADO.
 
 ---
 
@@ -391,7 +442,7 @@ Toda formatação fica em `FormatoMensagens` (funções puras, testadas com JUni
 - **Log** (para máquinas): uma linha por leitura, separador `;`, ISO-8601, ponto decimal:
   `momento;sensor;tipo;valor;unidade;resultado;severidade;thread`.
 - **Extrato** (`data/extrato-AAAAMMDD-HHmmss.txt`): período, configuração,
-  produzidas/processadas/perdidas, alertas por tipo × severidade, caminhos de
+  faixa aceita de cada sensor (marcando as diferentes do padrão do tipo), produzidas/processadas/perdidas, alertas por tipo × severidade, caminhos de
   log e banco. "Perdidas" diferente de 0 é destacado com `<<< VERIFICAR`.
 - Encoding **UTF-8 explícito** em todo writer/reader (`StandardCharsets.UTF_8`);
   compilar com `-encoding UTF-8` (o `pom.xml` já define). Sem isso, acentos e
@@ -418,7 +469,8 @@ Estado compartilhado entre threads:
 3. fila interna do `LogArquivo`;
 4. `AlertaRepository` (stateless; conexões não são compartilhadas);
 5. monitor de pausa de cada `Sensor`;
-6. a interface Swing, que só pode ser tocada na EDT.
+6. a interface Swing, que só pode ser tocada na EDT;
+7. a `ConfiguracaoSensores` e o `AnalisadorDeAnomalias` da execução (imutáveis — lidos sem lock).
 
 Regras:
 
@@ -462,6 +514,11 @@ j) Ligar/desligar um sensor individualmente: a thread atual de cada sensor fica 
    lock. `parar()` interrompe a thread atual de cada sensor (as já desligadas estão mortas).
    Desligar o último sensor chama `parar()` sob o MESMO lock (reentrante): entre conferir
    "nenhum ligado" e encerrar, nenhum outro pedido consegue ligar um sensor.
+
+k) Configuração dos sensores: imutável; o campo do controlador é `volatile` e só é TROCADO
+   sob o lock do controlador e com o sistema PARADO. Cada execução copia a referência no
+   início e cria um analisador próprio; os geradores ficam confinados à thread do sensor. Assim
+   faixas nunca mudam no meio de uma execução e nenhuma thread de trabalho usa lock novo.
 
 Antes de adicionar `synchronized`, pergunte:
 "Existe estado mutável realmente compartilhado aqui?"
@@ -528,6 +585,13 @@ CREATE INDEX IF NOT EXISTS idx_alerta_sensor  ON alerta (sensor_id);
 CREATE INDEX IF NOT EXISTS idx_alerta_momento ON alerta (momento_leitura);
 ```
 
+Configuração dos sensores (15/11), no mesmo script, também `CREATE TABLE IF NOT EXISTS`:
+`config_geral (chave PK, valor)` — hoje só `intervalo_ms`; `config_tipo (tipo_sensor PK, minimo,
+maximo)` — faixa padrão; `config_sensor (sensor_id PK, tipo_sensor, minimo, maximo, ordem UNIQUE)`
+— faixa de cada sensor. CHECK de tipo igual ao de `alerta` e `CHECK (minimo < maximo)`.
+Tabelas vazias = primeira execução (padrão). A tabela `alerta` não mudou: `regra_violada` guarda o
+limite vigente no momento da leitura, então o histórico continua coerente depois de mudar faixas.
+
 Regras:
 
 - Sempre `PreparedStatement` e try-with-resources.
@@ -535,20 +599,22 @@ Regras:
   `ControladorTelemetria`, telas ou qualquer classe de `domain`.
 - Script idempotente: nunca `DROP TABLE` na inicialização.
 - `SQLException` nunca engolida em silêncio (nada de `catch` vazio ou só `printStackTrace`).
-- Leituras normais vão só para o log; o banco guarda apenas alertas.
+- Leituras normais vão só para o log; o banco guarda apenas alertas e a configuração dos sensores.
 
 ---
 
 ## 10. TESTES
 
 Mínimo exigido: 5 testes JUnit das regras de anomalia, sem threads nem banco.
-Situação atual (10/11): 193 execuções de teste contando os parametrizados (25 métodos no
-`AnalisadorDeAnomaliasTest`), mais o teste de estresse (15 rodadas).
+Situação atual (15/11): 278 execuções de teste contando os parametrizados (53 no
+`AnalisadorDeAnomaliasTest`, 29 no `ConfiguracaoSensoresTest`), mais o teste de estresse
+(4 cenários × 5 rodadas = 20).
 
 Ferramentas de teste:
 
 - `Dubles.RepositorioFalso` (em memória, pode ser "desligado" para simular banco fora do ar);
 - `Dubles.OuvinteFalso` (guarda leituras processadas e falhas);
+- `Dubles.ConfiguracaoFalsa` (repositório de configuração em memória; pode ser "desligado");
 - publicador falso em memória para o `Sensor`;
 - `Clock` controlado e `Random` com semente para resultados reproduzíveis;
 - `@TempDir` para arquivos de log e extratos.
@@ -560,6 +626,20 @@ Testes unitários prioritários (regras de anomalia — sustentam os 0,5 ponto):
 3. Cada fronteira de severidade (5 %, 15 %, 30 %) cai no degrau certo.
 4. O alerta carrega sensor, tipo, valor, momento, severidade e regra legível.
 5. `LeituraTelemetria` rejeita valor não finito e id vazio.
+6. Faixa por sensor: o mesmo valor é normal num sensor e alerta em outro do mesmo tipo; limites
+   e severidade calculados sobre a faixa do sensor; sensor desconhecido usa o padrão do tipo.
+
+Configuração dos sensores:
+
+- `ConfiguracaoSensoresTest`: padrão (4 sensores, 200 ms, faixas da tabela); ids sequenciais;
+  sensor novo herda o padrão vigente; mudar o padrão não altera existentes; validações;
+  imutabilidade; `comQuantidadePorTipo`.
+- `ConfiguracaoRepositoryIntegracaoTest` (H2): vazio na 1ª execução; ida e volta igual; salvar
+  de novo substitui; falha no meio → rollback; texto malicioso; CHECKs; persistência em arquivo.
+- `ControladorTelemetriaTest`: padrão gravado na 1ª execução; reabrir recupera; sensor
+  adicionado roda; alterar em execução é recusado; banco sem gravar não muda nada; no sistema
+  real TEMP-02 (10–60) alerta pelos limites dele; console e extrato mostram as faixas.
+- `PaginacaoTest`: nº de páginas, índices, ajuste ao mudar a quantidade, descrição.
 
 Testes da simulação por eventos discretos (sem threads, `Random` com semente):
 
@@ -596,7 +676,9 @@ Testes de integração (separados, `@Tag("integracao")`):
 
 Teste de estresse (`@Tag("estresse")`, `mvn test -Dgroups=estresse`):
 
-- sistema real com fila de capacidade 50 e 4 consumidores, 5 rodadas por cenário;
+- sistema real com fila de capacidade 50 e 4 consumidores, 5 rodadas por cenário (32 sensores,
+  40, banco lento e 8 de temperatura com faixas diferentes — este confere cada alerta contra a
+  faixa do próprio sensor); configuração gravada no banco antes de abrir o controlador;
 - confere produzidas == processadas, cada (sensor, sequência) exatamente uma vez,
   linhas de log == processadas + 1, alertas no banco == gerados, tudo dentro de
   `assertTimeoutPreemptively` (deadlock faz o teste falhar);
@@ -608,7 +690,7 @@ Comandos:
 
 ```
 mvn test                                                   # unidade + integração
-mvn test -Dgroups=estresse                                 # estresse (~80 s)
+mvn test -Dgroups=estresse                                 # estresse (~2 min)
 mvn test '-Dtest=AnalisadorDeAnomaliasTest*#fronteirasNaTemperatura'
 ```
 
@@ -622,7 +704,7 @@ classes, concorrência, persistência e testes, no formato da seção 16.
 
 ### JÁ IMPLEMENTADAS (manter funcionando, não reescrever)
 
-- **E1. Interface Swing** com abas Monitoramento, Histórico de alertas e Regras e sensores.
+- **E1. Interface Swing** com abas Monitoramento, Histórico de alertas e Configurações.
 - **E2. Escala de severidade** (BAIXA → CRITICA pelo desvio além do limite).
 - **E3. Extrato da execução** em arquivo e em diálogo.
 - **E4. Modo console** (`--console`) com opções de sensores, intervalo, consumidores e fila.
@@ -634,6 +716,11 @@ classes, concorrência, persistência e testes, no formato da seção 16.
   [Pausar] [Desligar] (ligado) e [Retomar] [Desligar] (pausado). Botões dos cartões ficam
   desabilitados só com a pausa geral ou durante o Parar. Desligar o último sensor ligado
   é o mesmo que o Parar geral (extrato gravado e mostrado).
+- **E8. Configuração por sensor gravada no banco** (15/11, plano `plano-configuracoes-sensores`):
+  aba Configurações com faixa padrão por tipo, [+ Adicionar sensor], faixa própria de cada
+  sensor e intervalo; tudo em `config_*` (substitui a F2).
+- **E9. Monitoramento paginado** (4 cartões por página) e [Ver gráfico] em destaque
+  (estilo `DESTAQUE`, linha própria no cartão; preenchido = gráfico aberto).
 
 ### DECISÕES DO PROJETO (não reabrir sem pedido explícito)
 
@@ -646,8 +733,19 @@ classes, concorrência, persistência e testes, no formato da seção 16.
   Não mostrar gráficos abertos por padrão nem empilhar um por sensor.
 - Histórico de alertas filtra pelo botão **Filtrar** (sem filtro automático),
   com campo Sensor digitável.
-- Tabela da aba Regras: **Tipo · Faixa aceita · Severidade se violar**, com a
-  escala completa na dica (tooltip) de cada linha.
+- Aba **Configurações** (substituiu "Regras e sensores" em 15/11): sensores, faixas e intervalo
+  saíram da seção Simulação (que ficou só com consumidores). A faixa padrão de um tipo só vale
+  para sensores NOVOS. Edição só com o sistema PARADO. Cada sensor pode ser REMOVIDO
+  individualmente ([Remover] na linha dele, com confirmação; não remove o último sensor da
+  configuração; os alertas dele continuam no Histórico; o id pode voltar a ser usado se era o
+  maior do tipo — o gráfico guardado do removido é descartado).
+  Intervalo único para todos os sensores. Ordem dos cartões: por id.
+- A aba Configurações é uma **LISTA** (não cartões), pedido do usuário em 15/11: cada tipo é
+  uma linha; a seta abre o grupo e mostra os sensores dele recuados para a direita (alinhados ao
+  nome do tipo), cada um com a própria faixa editável. Grupos começam fechados.
+- Monitoramento: com mais de 4 sensores, 4 cartões por página; o paginador fica LOGO ABAIXO dos
+  cartões (acima do gráfico, quando aberto), centralizado, com botões no estilo `DESTAQUE`
+  (laranja). Trocar de página não fecha o gráfico aberto.
 
 ### FÁCEIS
 
@@ -656,7 +754,7 @@ classes, concorrência, persistência e testes, no formato da seção 16.
   fica fora da View (`SwingWorker` + writer UTF-8).
 - Testes: formato da linha CSV em `FormatoMensagens` (função pura).
 
-**F2. Faixas configuráveis em arquivo** (`regras.properties`)
+**F2. Faixas configuráveis em arquivo** (`regras.properties`) — SUPERADA pela E8 (faixas no banco).
 - Leitura em `app`/`infra`; o `AnalisadorDeAnomalias` recebe as regras pelo
   construtor (continua puro). Valores padrão quando o arquivo não existir.
 - Testes: leitura, padrões e validação (mínimo < máximo).
@@ -711,8 +809,9 @@ COMBINAÇÕES RECOMENDADAS
 
 - Nova regra de anomalia → só em `domain` (`AnalisadorDeAnomalias` ou nova
   classe de regra), com testes primeiro (TDD).
-- Novo tipo de sensor → `TipoSensor` + faixa no analisador + `CHECK` no
-  `schema.sql` + prefixo no `ControladorTelemetria` + ícone em `Icones`.
+- Novo tipo de sensor → `TipoSensor` (nome, unidade, prefixo) + faixa padrão em
+  `RegraDeAnomalia` + `CHECK` de tipo no `schema.sql` (tabelas `alerta`, `config_tipo` e
+  `config_sensor`) + direção em `ParametrosDeEpisodios` + ícone em `Icones`.
 - Nova consulta ao banco → método em `RepositorioDeAlertas`/`AlertaRepository`
   → método no `ControladorMonitoramento` → tela chama em `SwingWorker`.
 - Nova tela ou mudança visual → seguir a skill `designer-swing-telemetria`
@@ -753,10 +852,12 @@ SEMANA 6 · 10–16/nov · Revisão e entregáveis ← **semana atual**
   `docs/estresse.md` refeitos.
 - Skill `revisor-telemetria`; corrigir CRÍTICO/IMPORTANTE; prova de persistência;
   `entregaveis/` completo.
+- 15/11: configuração por sensor (E8) e monitoramento paginado (E9), em 6 prompts — o extra da
+  semana 7 adiantado. 278 testes + 20 rodadas de estresse; relatório e prova refeitos.
 
 SEMANA 7 · 17–23/nov · Extra opcional e estabilização
-- No máximo UM extra (seção 11); se não estiver estável até o meio da semana,
-  cortar sem remorso. Revisar todos os pontos de concorrência.
+- O extra da semana (E8 + E9) já foi feito em 15/11: usar a semana para estabilizar, rodar
+  `mvn test` e o estresse no Windows e revisar os pontos de concorrência. Nenhum extra novo.
 
 SEMANA 8 · 24–30/nov · Congelamento
 - Somente: correções, testes, script SQL, log de exemplo, relatório e revisão
@@ -777,7 +878,7 @@ O relatório (`entregaveis/RELATORIO.md`, 1–2 páginas) deve cobrir, no mínim
 - quais objetos são compartilhados entre threads e como cada um foi protegido (seção 7);
 - por que não há deadlock (um lock por objeto, nada aninhado, nada de I/O em lock,
   put/take bloqueantes, pílula de veneno, `join` com tempo limite);
-- persistência (schema, banco em arquivo, prova de que os alertas sobrevivem);
+- persistência (schema, banco em arquivo, prova de que os alertas E a configuração dos sensores sobrevivem);
 - resultados do teste de estresse;
 - como rodar (executável, Maven, modo console).
 

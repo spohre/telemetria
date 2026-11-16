@@ -28,7 +28,9 @@ public final class Icones {
         INICIAR, PAUSAR, PARAR,
         TEMPERATURA, VELOCIDADE, PRESSAO, UMIDADE, SENSOR,
         ALERTA, OK, ERRO,
-        BANCO, HISTORICO, REGRAS, FILTRO, EXPORTAR, LOG, FILA, MONITORAMENTO
+        BANCO, HISTORICO, REGRAS, FILTRO, EXPORTAR, LOG, FILA, MONITORAMENTO,
+        /** Seta de lista recolhida (›) e aberta (⌄): abrir/fechar um grupo da lista. */
+        RECOLHIDO, EXPANDIDO
     }
 
     /** Cria o ícone no tamanho e cor pedidos. */
@@ -228,6 +230,20 @@ public final class Icones {
                 g.draw(new RoundRectangle2D.Double(4, 4, 16, 4, 1.5, 1.5));
                 g.draw(new RoundRectangle2D.Double(4, 10, 16, 4, 1.5, 1.5));
                 g.draw(new RoundRectangle2D.Double(4, 16, 16, 4, 1.5, 1.5));
+            }
+            case RECOLHIDO -> {
+                Path2D p = new Path2D.Double();
+                p.moveTo(9.5, 6.5);
+                p.lineTo(15, 12);
+                p.lineTo(9.5, 17.5);
+                g.draw(p);
+            }
+            case EXPANDIDO -> {
+                Path2D p = new Path2D.Double();
+                p.moveTo(6.5, 9.5);
+                p.lineTo(12, 15);
+                p.lineTo(17.5, 9.5);
+                g.draw(p);
             }
             case MONITORAMENTO -> {
                 Path2D p = new Path2D.Double();

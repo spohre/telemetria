@@ -2,7 +2,9 @@ package app;
 
 import app.ui.telas.JanelaPrincipal;
 import app.ui.tema.Tema;
+import domain.ConfiguracaoSensores;
 import infra.AlertaRepository;
+import infra.ConfiguracaoRepository;
 import infra.FabricaDeConexoes;
 import infra.FilaDeLeituras;
 import infra.InicializadorBanco;
@@ -21,8 +23,12 @@ import javax.swing.SwingUtilities;
  *   mvn -q compile exec:java -Dexec.args="--console 20 --sensores 3 --intervalo 20 --consumidores 2"
  * </pre>
  *
- * <p>Opções do modo console (todas opcionais): {@code --sensores N} (por tipo, 1–10),
- * {@code --intervalo MS} (10–5000), {@code --consumidores N} (1–4), {@code --fila N}
+ * <p>O modo console usa a configuração dos sensores gravada no banco (a mesma da aba
+ * Configurações). {@code --sensores N} (por tipo, 1–10) e {@code --intervalo MS} (10–5000) valem
+ * <b>só para aquela execução</b> e não são gravados: {@code --sensores} mantém as faixas dos
+ * sensores que já existem e cria os que faltam com a faixa padrão do tipo.</p>
+ *
+ * <p>Outras opções: {@code --consumidores N} (1–4), {@code --fila N}
  * (capacidade da fila; padrão 1000 — menor força os sensores a esperar) e
  * {@code --episodio-medio SEGUNDOS} (tempo normal médio entre episódios de anomalia de cada sensor;
  * convertido em leituras pelo intervalo — padrão 50 leituras, ~10 s a 200 ms).</p>
@@ -43,8 +49,9 @@ public final class Main {
                 capacidadeFila = Integer.parseInt(args[i + 1]);
             }
         }
-        ControladorTelemetria controlador = new ControladorTelemetria(new AlertaRepository(fabrica), fabrica.url(),
-                Path.of(""), capacidadeFila, System.out, Clock.systemDefaultZone());
+        ControladorTelemetria controlador = new ControladorTelemetria(new AlertaRepository(fabrica),
+                new ConfiguracaoRepository(fabrica), fabrica.url(), Path.of(""), capacidadeFila, System.out,
+                Clock.systemDefaultZone());
 
         if (args.length > 0 && args[0].equals("--console")) {
             rodarNoConsole(controlador, args);
@@ -83,10 +90,10 @@ public final class Main {
 
     private static void rodarNoConsole(ControladorTelemetria controlador, String[] args) {
         int segundos = SEGUNDOS_PADRAO;
-        ConfiguracaoSimulacao base = controlador.configuracao();
-        int sensores = base.sensoresPorTipo();
-        int intervalo = base.intervaloMs();
-        int consumidores = base.consumidores();
+        ConfiguracaoSensores sensoresCfg = controlador.configuracaoSensores();
+        Integer sensores = null;                       // null = os da configuração gravada
+        int intervalo = sensoresCfg.intervaloMs();
+        int consumidores = controlador.configuracao().consumidores();
         Double episodioMedioSegundos = null;
         try {
             for (int i = 1; i < args.length; i++) {
@@ -99,7 +106,13 @@ public final class Main {
                     default -> segundos = Integer.parseInt(args[i]);
                 }
             }
-            controlador.aplicarConfiguracao(new ConfiguracaoSimulacao(sensores, intervalo, consumidores));
+            controlador.aplicarConfiguracao(new ConfiguracaoSimulacao(consumidores));
+            if (sensores != null) {
+                sensoresCfg = sensoresCfg.comQuantidadePorTipo(sensores);
+            }
+            if (sensores != null || intervalo != sensoresCfg.intervaloMs()) {   // só nesta execução, sem gravar
+                controlador.usarSemGravar(sensoresCfg.comIntervalo(intervalo));
+            }
             if (episodioMedioSegundos != null) {   // segundos → leituras (passos do relógio simulado)
                 double leituras = episodioMedioSegundos * 1000 / intervalo;
                 controlador.aplicarParametrosEpisodios(

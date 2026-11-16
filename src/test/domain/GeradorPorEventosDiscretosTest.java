@@ -308,4 +308,55 @@ class GeradorPorEventosDiscretosTest {
             assertEquals(tipo, g.faixa().tipo());
         }
     }
+
+    // ------------------------------------------------ faixa própria do sensor
+
+    /** TEMP-02 com faixa 10–60 (padrão do tipo continua 0–80). */
+    private static final ConfiguracaoSensores PERSONALIZADA = ConfiguracaoSensores.padrao()
+            .comSensorNovo(TipoSensor.TEMPERATURA)
+            .comFaixaDoSensor("TEMP-02", 10, 60);
+    private static final AnalisadorDeAnomalias POR_SENSOR = new AnalisadorDeAnomalias(PERSONALIZADA);
+
+    @Test
+    void comFaixaPersonalizadaForaDaCriseNuncaAlertaEACriseCruzaOLimiteDoSensor() {
+        RegraDeAnomalia faixa = POR_SENSOR.regraDo("TEMP-02", TipoSensor.TEMPERATURA);
+        GeradorPorEventosDiscretos g = GeradorPorEventosDiscretos.para(faixa, SEMPRE_CRISE, new Random(21));
+        assertEquals(faixa, g.faixa());
+        int alertas = 0;
+        for (int i = 0; i < LEITURAS; i++) {
+            double v = g.proximoValor();
+            Optional<Alerta> alerta = POR_SENSOR.analisar(
+                    new LeituraTelemetria("TEMP-02", TipoSensor.TEMPERATURA, v, Instant.EPOCH));
+            if (g.episodioAtual().isEmpty()) {
+                assertFalse(alerta.isPresent(), "valor " + v + " fora da crise (fase " + g.fase() + ")");
+                assertTrue(v >= 10 && v <= 60, "fora da crise fica na faixa do sensor: " + v);
+            } else {
+                assertTrue(alerta.isPresent(), "crise que passa do limite: todo valor é alerta, mas veio " + v);
+                assertTrue(alerta.get().severidade().compareTo(g.episodioAtual().get().severidadeAlvo()) <= 0);
+                alertas++;
+            }
+        }
+        assertTrue(alertas > 1000, "alertas: " + alertas);
+    }
+
+    @Test
+    void comFaixaPersonalizadaOsValoresNaoSeguemAFaixaPadraoDoTipo() {
+        RegraDeAnomalia faixa = POR_SENSOR.regraDo("TEMP-02", TipoSensor.TEMPERATURA);
+        GeradorPorEventosDiscretos g = GeradorPorEventosDiscretos.para(faixa, PADRAO, new Random(22));
+        double maior = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < LEITURAS; i++) {
+            double v = g.proximoValor();
+            if (g.episodioEmAndamento().isEmpty()) {
+                maior = Math.max(maior, v);
+            }
+        }
+        assertTrue(maior <= 60, "passeio normal respeita o máximo 60 do sensor, maior = " + maior);
+    }
+
+    @Test
+    void fabricaPorFaixaUsaAEscalaDaPropriaFaixa() {
+        RegraDeAnomalia faixa = new RegraDeAnomalia(TipoSensor.PRESSAO, 2, 6);
+        GeradorPorEventosDiscretos g = GeradorPorEventosDiscretos.para(faixa, PADRAO, new Random(23));
+        assertEquals(faixa, g.faixa());
+    }
 }

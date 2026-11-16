@@ -1,6 +1,8 @@
 package app;
 
+import domain.AnalisadorDeAnomalias;
 import domain.DegrauDeSeveridade;
+import domain.RegraDeAnomalia;
 import domain.Severidade;
 import domain.TipoSensor;
 
@@ -21,6 +23,12 @@ public record RegraExibida(TipoSensor tipo, double minimo, double maximo, Severi
         Objects.requireNonNull(tipo, "tipo");
         Objects.requireNonNull(severidade, "severidade");
         escala = escala == null ? List.of() : List.copyOf(escala);
+    }
+
+    /** Faixa de um sensor (ou padrão de um tipo) com a escala de severidade calculada sobre ela. */
+    public static RegraExibida de(RegraDeAnomalia faixa) {
+        return new RegraExibida(faixa.tipo(), faixa.minimo(), faixa.maximo(), Severidade.BAIXA,
+                AnalisadorDeAnomalias.escalaPara(faixa));
     }
 
     /** Regra com severidade fixa, sem escala. */

@@ -52,7 +52,13 @@ public final class Componentes {
 
     // ================================================================== botões
 
-    public enum Estilo { PRIMARIO, SECUNDARIO, PERIGO, FANTASMA }
+    /**
+     * PRIMARIO: ação principal (preenchido laranja) · SECUNDARIO: contorno cinza · PERIGO:
+     * contorno vermelho · FANTASMA: só texto · DESTAQUE: contorno e texto laranja, para uma ação
+     * que precisa chamar atenção sem competir com a principal (ex.: "Ver gráfico"); com o botão
+     * SELECIONADO ({@code setSelected(true)}) fica preenchido de laranja, como um botão ligado.
+     */
+    public enum Estilo { PRIMARIO, SECUNDARIO, PERIGO, FANTASMA, DESTAQUE }
 
     public static JButton botao(String texto, Icone icone, Estilo estilo) {
         return botao(texto, icone, estilo, Medida.ALTURA_BOTAO);
@@ -63,7 +69,12 @@ public final class Componentes {
      * dentro de um cartão. Mesmos estilos e estados do botão normal.
      */
     public static JButton botaoPequeno(String texto, Estilo estilo) {
-        JButton b = botao(texto, null, estilo, Medida.ALTURA_BOTAO_PEQUENO);
+        return botaoPequeno(texto, null, estilo);
+    }
+
+    /** Botão compacto com ícone pequeno à esquerda (o ícone segue a cor do texto). */
+    public static JButton botaoPequeno(String texto, Icone icone, Estilo estilo) {
+        JButton b = botao(texto, icone, estilo, Medida.ALTURA_BOTAO_PEQUENO);
         b.setFont(Fonte.ROTULO_NEGRITO);
         b.setBorder(BorderFactory.createEmptyBorder(0, Medida.ESP_2, 0, Medida.ESP_2));
         return b;
@@ -101,7 +112,8 @@ public final class Componentes {
             b.setIcon(Icones.queSegueOTexto(icone, soIcone ? Medida.ICONE : Medida.ICONE_PEQ));
         }
         // Cor do texto atualizada por EVENTO de estado — nunca dentro de paint().
-        Runnable atualizar = () -> b.setForeground(corTexto(estilo, b.isEnabled(), b.getModel().isRollover()));
+        Runnable atualizar = () -> b.setForeground(corTexto(estilo, b.isEnabled(), b.getModel().isRollover(),
+                b.getModel().isSelected()));
         b.getModel().addChangeListener(e -> atualizar.run());
         b.addPropertyChangeListener("enabled", e -> atualizar.run());
         atualizar.run();
@@ -115,11 +127,12 @@ public final class Componentes {
         return b;
     }
 
-    private static Color corTexto(Estilo e, boolean ativo, boolean hover) {
+    private static Color corTexto(Estilo e, boolean ativo, boolean hover, boolean selecionado) {
         if (!ativo) {
             return Cor.TEXTO_DESATIVADO;
         }
         return switch (e) {
+            case DESTAQUE -> selecionado ? Cor.SOBRE_PRIMARIA : Cor.PRIMARIA_TEXTO;
             case PRIMARIO -> Cor.SOBRE_PRIMARIA;
             case SECUNDARIO -> Cor.TEXTO;
             case PERIGO -> hover ? Cor.FUNDO : Cor.PERIGO;
@@ -142,15 +155,19 @@ public final class Componentes {
             boolean ativo = b.isEnabled();
             boolean hover = ativo && m.isRollover();
             boolean apertado = ativo && m.isArmed() && m.isPressed();
+            boolean selecionado = m.isSelected();
 
             Color fundo = switch (estilo) {
                 case PRIMARIO -> !ativo ? Cor.SUPERFICIE_ELEVADA : (hover ? Cor.PRIMARIA_HOVER : Cor.PRIMARIA);
                 case PERIGO -> hover ? Cor.PERIGO : null;
+                case DESTAQUE -> !ativo ? null : selecionado ? (hover ? Cor.PRIMARIA_HOVER : Cor.PRIMARIA)
+                        : (apertado ? Tema.translucida(Cor.PRIMARIA, 90) : (hover ? Tema.translucida(Cor.PRIMARIA, 45) : null));
                 default -> apertado ? Cor.BORDA : (hover ? Cor.SUPERFICIE_ELEVADA : null);
             };
             Color borda = switch (estilo) {
                 case SECUNDARIO -> ativo ? Cor.BORDA : Tema.translucida(Cor.BORDA, 120);
                 case PERIGO -> ativo ? Tema.translucida(Cor.PERIGO, 160) : Tema.translucida(Cor.BORDA, 120);
+                case DESTAQUE -> ativo ? Cor.PRIMARIA : Tema.translucida(Cor.BORDA, 120);
                 default -> null;
             };
 
@@ -569,6 +586,39 @@ public final class Componentes {
         }
         s.setPreferredSize(new Dimension(104, Medida.ALTURA_BOTAO));
         return s;
+    }
+
+    /**
+     * Campo de texto temado (número com casas decimais, por exemplo): fundo elevado arredondado,
+     * fonte de dados, alinhado à direita, altura de botão. Quem lê o número é a tela, com
+     * {@code FormatoMensagens.lerNumero}; a validação de negócio fica no controller.
+     */
+    public static javax.swing.JTextField campoTexto(int colunas) {
+        javax.swing.JTextField tf = new javax.swing.JTextField(colunas) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(Cor.SUPERFICIE_ELEVADA);
+                g2.fill(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), Medida.RAIO * 2, Medida.RAIO * 2));
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        tf.setOpaque(false);
+        tf.setFont(Fonte.DADO_NEGRITO);
+        tf.setForeground(Cor.TEXTO);
+        tf.setCaretColor(Cor.PRIMARIA);
+        tf.setDisabledTextColor(Cor.TEXTO_DESATIVADO);
+        tf.setSelectionColor(Tema.translucida(Cor.PRIMARIA, 70));
+        tf.setHorizontalAlignment(javax.swing.JTextField.RIGHT);
+        tf.setBorder(BorderFactory.createCompoundBorder(new BordaArredondada(Cor.BORDA, 2),
+                margem(0, Medida.ESP_2, 0, Medida.ESP_2)));
+        tf.setPreferredSize(new Dimension(tf.getPreferredSize().width, Medida.ALTURA_BOTAO));
+        tf.setMinimumSize(tf.getPreferredSize());
+        return tf;
     }
 
     /** Botão de seta em chevron (para combo e spinner). */

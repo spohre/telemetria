@@ -37,9 +37,9 @@ precisam ser refeitos; para isso há instruções em `lancador/main.go` (Go 1.21
 ## Compilar e testar
 
 ```bash
-mvn test                       # 193 testes: unidade + integração com H2 em memória
+mvn test                       # 278 testes: unidade + integração com H2 em memória
 mvn test -Dgroups=integracao   # só os de banco
-mvn test -Dgroups=estresse     # só o estresse: 3 cenários × 5 rodadas (~80 s); fica fora do mvn test
+mvn test -Dgroups=estresse     # só o estresse: 4 cenários × 5 rodadas (~2 min); fica fora do mvn test
 ```
 
 ## Rodar
@@ -53,8 +53,11 @@ mvn -q compile exec:java -Dexec.mainClass=app.ui.demo.DemoInterface   # tela com
 
 No PowerShell, mantenha as aspas em volta de `-Dexec.args=...`.
 
-Opções do modo console (todas opcionais): `--sensores N` por tipo (1–10; total = 4 × N),
-`--intervalo MS` (10–5000), `--consumidores N` (1–4), `--fila N` (capacidade; padrão 1000),
+O modo console usa a **configuração gravada no banco** — a mesma da aba Configurações (sensores,
+faixa de cada um e intervalo). Opções (todas opcionais): `--sensores N` por tipo (1–10; total = 4 × N;
+mantém as faixas dos sensores que já existem e cria os que faltam com a faixa padrão) e
+`--intervalo MS` (10–5000) valem **só para aquela execução** e não são gravados;
+`--consumidores N` (1–4), `--fila N` (capacidade; padrão 1000),
 `--episodio-medio SEGUNDOS` (tempo normal médio entre episódios de anomalia de cada sensor; padrão ~10 s a 200 ms;
 cada episódio aquece, entra em crise e esfria aos poucos).
 Ctrl+C encerra de forma limpa (drena a fila, fecha o log, grava o extrato).
@@ -63,7 +66,7 @@ Ctrl+C encerra de forma limpa (drena a fila, fecha o log, grava o extrato).
 
 | Arquivo | Conteúdo |
 |---|---|
-| `data/telemetria.mv.db` | banco H2 com a tabela `alerta` (persiste entre execuções) |
+| `data/telemetria.mv.db` | banco H2 com os alertas e a configuração dos sensores (persistem entre execuções) |
 | `data/leituras.log` | todas as leituras, uma por linha, `;` como separador, UTF-8 |
 | `data/extrato-AAAAMMDD-HHmmss.txt` | resumo de cada execução (gerado ao parar) |
 
@@ -72,12 +75,14 @@ Ctrl+C encerra de forma limpa (drena a fila, fecha o log, grava o extrato).
 ```
 src/main/        código (pacotes sem prefixo: domain, infra, app)
 ├── domain/      Sensor (Runnable), LeituraTelemetria, Alerta, AnalisadorDeAnomalias, RegraDeAnomalia,
-│                DegrauDeSeveridade, portas PublicadorDeLeituras e RepositorioDeAlertas;
+│                DegrauDeSeveridade, ConfiguracaoSensores, SensorConfigurado,
+│                portas PublicadorDeLeituras, RepositorioDeAlertas e RepositorioDeConfiguracao;
 │                valores simulados por eventos discretos: GeradorPorEventosDiscretos, CicloDeEpisodios,
 │                AgendaDeEventos, EventoDeSimulacao, EpisodioDeAnomalia, ParametrosDeEpisodios, GeradorPasseioAleatorio
-├── infra/       FilaDeLeituras, AlertaRepository (JDBC), LogArquivo (I/O), FabricaDeConexoes, InicializadorBanco
+├── infra/       FilaDeLeituras, AlertaRepository e ConfiguracaoRepository (JDBC), LogArquivo (I/O),
+│                FabricaDeConexoes, InicializadorBanco
 └── app/         ControladorTelemetria, ProcessadorDeLeituras (consumidor), ContadoresExecucao, OuvinteConsole,
-    │            FormatoMensagens, Main
+    │            FormatoMensagens, Paginacao, FalhaDeOperacao, Main
     └── ui/      tema/ (Tema, Icones, Componentes, MensagemErro) · telas/ · demo/ (ControladorSimulado)
 src/test/        testes JUnit, nos mesmos pacotes (+ estresse/)
 src/resources/   db.properties · schema.sql · consultas.sql
@@ -112,21 +117,28 @@ drenam a fila e saem → desliga estatísticas → fecha o log → grava o extra
 
 - Configuração em `src/resources/db.properties` (qualquer chave pode ser sobrescrita com
   `-Ddb.url=...`). Padrão: H2 em arquivo, `jdbc:h2:./data/telemetria;DB_CLOSE_DELAY=-1`.
-- `schema.sql` cria a tabela `alerta` com `CREATE TABLE IF NOT EXISTS` (roda a cada início, não apaga dados).
+- `schema.sql` cria as tabelas com `CREATE TABLE IF NOT EXISTS` (roda a cada início, não apaga dados):
+  `alerta` e as da configuração dos sensores — `config_geral` (intervalo), `config_tipo` (faixa padrão
+  de cada tipo) e `config_sensor` (faixa e ordem de cada sensor). Banco sem configuração (primeira
+  execução) = 4 sensores, um de cada tipo, 200 ms, faixas padrão.
 - `consultas.sql` tem consultas para conferir os alertas depois de encerrar o programa.
-- Todo o SQL fica no `AlertaRepository`, sempre com `PreparedStatement` e try-with-resources;
+- Todo o SQL fica no `AlertaRepository` e no `ConfiguracaoRepository` (este grava a configuração
+  inteira numa transação), sempre com `PreparedStatement` e try-with-resources;
   cada operação usa a sua própria conexão (`Connection` não é compartilhada entre threads).
 - PostgreSQL: adicione `org.postgresql:postgresql` no `pom.xml` e troque `db.url`/`db.usuario`/`db.senha`.
 
 ## Interface
 
 Padrões visuais na skill `.claude/skills/designer-swing-telemetria/` e prévias em `docs/telas/`.
-Abas: **Monitoramento** (cartões de todos os sensores, visíveis desde a abertura — cada um
-pode ser ligado, pausado e desligado no próprio cartão, mesmo sem iniciar o sistema todo, e
-tem um botão "Ver gráfico" que abre o histórico daquele sensor —,
+Abas: **Monitoramento** (cartões de todos os sensores, visíveis desde a abertura, 4 por página
+quando há mais de 4 — cada um pode ser ligado, pausado e desligado no próprio cartão, mesmo sem
+iniciar o sistema todo, e tem o botão em destaque "Ver gráfico" que abre o histórico daquele sensor —,
 leituras ao vivo, alertas recentes),
 **Histórico de alertas** (consulta ao banco com filtros, inclui execuções anteriores) e
-**Regras e sensores** (faixas e escala de severidade; configuração da simulação com o sistema parado).
+**Configurações**: intervalo entre leituras; para cada tipo, a faixa padrão (só para sensores
+novos), o botão "+ Adicionar sensor" e a faixa própria de cada sensor (que também pode ser
+removido); e, na seção Simulação, os
+consumidores. Tudo editável só com o sistema parado e gravado no banco.
 
 ## Revisão automática
 

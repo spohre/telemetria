@@ -3,6 +3,8 @@ package estresse;
 import static org.junit.jupiter.api.Assertions.*;
 
 import app.ConfiguracaoSimulacao;
+import domain.ConfiguracaoSensores;
+import infra.ConfiguracaoRepository;
 import app.ControladorTelemetria;
 import app.EstatisticasExecucao;
 import app.ExtratoExecucao;
@@ -55,12 +57,12 @@ class TesteDeEstresse {
 
     @RepeatedTest(value = 5, name = "32 sensores · 10 ms · 4 consumidores · fila 50 — rodada {currentRepetition}/5")
     void trintaEDoisSensores(RepetitionInfo rodada) {
-        executar(new ConfiguracaoSimulacao(8, 10, 4), "32 sensores", rodada.getCurrentRepetition());
+        executar(Cenario.porTipo(8, 10, 4), "32 sensores", rodada.getCurrentRepetition());
     }
 
     @RepeatedTest(value = 5, name = "40 sensores · 10 ms · 4 consumidores · fila 50 — rodada {currentRepetition}/5")
     void cargaMaxima(RepetitionInfo rodada) {
-        executar(new ConfiguracaoSimulacao(10, 10, 4), "40 sensores", rodada.getCurrentRepetition());
+        executar(Cenario.porTipo(10, 10, 4), "40 sensores", rodada.getCurrentRepetition());
     }
 
     /**
@@ -69,26 +71,75 @@ class TesteDeEstresse {
      */
     @RepeatedTest(value = 5, name = "40 sensores · banco lento (+30 ms/alerta) · fila 50 — rodada {currentRepetition}/5")
     void bancoLentoForcaFilaCheia(RepetitionInfo rodada) {
-        long esperas = executar(new ConfiguracaoSimulacao(10, 10, 4), "banco lento", rodada.getCurrentRepetition(),
+        long esperas = executar(Cenario.porTipo(10, 10, 4), "banco lento", rodada.getCurrentRepetition(),
                 ATRASO_BANCO_LENTO_MS);
         assertTrue(esperas > 0, "a fila deveria ter enchido e feito sensores esperarem");
     }
 
+    /**
+     * Faixa própria por sensor: 8 sensores de temperatura, cada um com uma faixa diferente
+     * (TEMP-0k aceita 5k a 40+5k °C), mais um de cada outro tipo. Além das checagens de sempre,
+     * confere que cada alerta gravado usou a faixa DO SEU sensor (limite certo na regra violada
+     * e valor fora daquela faixa) — o analisador é um só, compartilhado pelos 4 consumidores.
+     */
+    @RepeatedTest(value = 5, name = "11 sensores · 8 de temperatura com faixas diferentes · 10 ms · fila 50 — rodada {currentRepetition}/5")
+    void faixasDiferentesNoMesmoTipo(RepetitionInfo rodada) {
+        ConfiguracaoSensores cfg = ConfiguracaoSensores.padrao().comIntervalo(10);
+        for (int k = 2; k <= 8; k++) {
+            cfg = cfg.comSensorNovo(TipoSensor.TEMPERATURA);
+        }
+        for (int k = 1; k <= 8; k++) {
+            cfg = cfg.comFaixaDoSensor(String.format("TEMP-%02d", k), 5.0 * k, 40.0 + 5 * k);
+        }
+        executar(new Cenario(cfg, 4), "faixas/sensor", rodada.getCurrentRepetition());
+
+        ConfiguracaoSensores usada = cfg;
+        AlertaRepository banco = new AlertaRepository(new FabricaDeConexoes(
+                "jdbc:h2:" + raiz.resolve("telemetria").toAbsolutePath() + ";DB_CLOSE_DELAY=-1", "sa", ""));
+        long conferidos = 0;
+        for (var s : usada.sensoresDo(TipoSensor.TEMPERATURA)) {
+            var faixa = s.regra();
+            String acima = "acima do limite " + app.FormatoMensagens.decimal(faixa.maximo()) + " °C";
+            String abaixo = "abaixo do limite " + app.FormatoMensagens.decimal(faixa.minimo()) + " °C";
+            for (Alerta a : banco.buscar(s.id(), null, null, null)) {
+                assertTrue(a.regraViolada().equals(acima) || a.regraViolada().equals(abaixo),
+                        s.id() + " usou a faixa de outro sensor: " + a.regraViolada());
+                assertTrue(a.valorLido() > faixa.maximo() || a.valorLido() < faixa.minimo(),
+                        s.id() + ": " + a.valorLido() + " não está fora de " + faixa);
+                conferidos++;
+            }
+        }
+        assertTrue(conferidos > 0, "houve alertas de temperatura para conferir");
+        System.out.printf("ESTRESSE | faixas/sensor | rodada %d/5 | %,d alertas de temperatura conferidos contra a "
+                + "faixa do próprio sensor%n", rodada.getCurrentRepetition(), conferidos);
+    }
+
     private static final long ATRASO_BANCO_LENTO_MS = 30;
 
-    private long executar(ConfiguracaoSimulacao cfg, String nome, int numero) {
+    /** Configuração dos sensores (gravada no banco antes de abrir o controlador) e consumidores. */
+    private record Cenario(ConfiguracaoSensores sensores, int consumidores) {
+        /** N sensores de cada tipo, faixas padrão. */
+        static Cenario porTipo(int sensoresPorTipo, int intervaloMs, int consumidores) {
+            return new Cenario(ConfiguracaoSensores.padrao().comQuantidadePorTipo(sensoresPorTipo)
+                    .comIntervalo(intervaloMs), consumidores);
+        }
+    }
+
+    private long executar(Cenario cfg, String nome, int numero) {
         return executar(cfg, nome, numero, 0);
     }
 
-    private long executar(ConfiguracaoSimulacao cfg, String nome, int numero, long atrasoBancoMs) {
+    private long executar(Cenario cfg, String nome, int numero, long atrasoBancoMs) {
         FabricaDeConexoes fabrica = new FabricaDeConexoes(
                 "jdbc:h2:" + raiz.resolve("telemetria").toAbsolutePath() + ";DB_CLOSE_DELAY=-1", "sa", "");  // como em db.properties
         new InicializadorBanco(fabrica).criarEstrutura();
         AlertaRepository repositorio = new AlertaRepository(fabrica);
         RepositorioDeAlertas usado = atrasoBancoMs == 0 ? repositorio : new BancoLento(repositorio, atrasoBancoMs);
-        ControladorTelemetria controlador = new ControladorTelemetria(usado, fabrica.url(), raiz,
+        ConfiguracaoRepository configuracoes = new ConfiguracaoRepository(fabrica);
+        configuracoes.salvar(cfg.sensores());
+        ControladorTelemetria controlador = new ControladorTelemetria(usado, configuracoes, fabrica.url(), raiz,
                 CAPACIDADE_FILA, null, Clock.systemDefaultZone());
-        controlador.aplicarConfiguracao(cfg);
+        controlador.aplicarConfiguracao(new ConfiguracaoSimulacao(cfg.consumidores()));
         ColetorDeSequencias coletor = new ColetorDeSequencias();
         controlador.registrarOuvinte(coletor);
 
@@ -104,7 +155,7 @@ class TesteDeEstresse {
 
         // ---- 2. cada (sensor, sequência) processado exatamente uma vez, sem buraco
         assertEquals(0, coletor.duplicadas.get(), "leituras processadas mais de uma vez");
-        int sensores = cfg.sensoresPorTipo() * 4;
+        int sensores = cfg.sensores().sensores().size();
         assertEquals(sensores, coletor.porSensor.size(), "todos os sensores foram processados");
         long totalColetado = 0;
         for (Map.Entry<String, Set<Long>> e : coletor.porSensor.entrySet()) {

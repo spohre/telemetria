@@ -27,8 +27,8 @@ import java.util.Random;
  *   <li><b>ESFRIANDO:</b> o valor vai de logo antes do limite de volta ao nível normal do passeio.</li>
  * </ul>
  *
- * <p>Faixas e degraus vêm do {@link AnalisadorDeAnomalias} ({@link #para}) — nenhum limite é
- * repetido aqui. O gerador só <i>mira</i> uma severidade; quem decide se é alerta continua
+ * <p>A faixa é a <b>do sensor</b> ({@link #para(RegraDeAnomalia, ParametrosDeEpisodios, Random)});
+ * os degraus vêm de {@link AnalisadorDeAnomalias#escalaPara} — nenhum limite é repetido aqui. O gerador só <i>mira</i> uma severidade; quem decide se é alerta continua
  * sendo o analisador.</p>
  *
  * <p><b>Concorrência:</b> não é thread-safe e não precisa ser. Cada sensor tem o seu gerador,
@@ -62,7 +62,7 @@ public class GeradorPorEventosDiscretos implements GeradorDeValores {
     private double pico;    // desvio além do limite no pico da crise
 
     /**
-     * @param faixa  faixa aceita do tipo do sensor
+     * @param faixa  faixa aceita do sensor
      * @param escala degraus BAIXA, MEDIA, ALTA e CRITICA, nessa ordem (como {@link AnalisadorDeAnomalias#escala})
      */
     public GeradorPorEventosDiscretos(RegraDeAnomalia faixa, List<DegrauDeSeveridade> escala,
@@ -74,10 +74,21 @@ public class GeradorPorEventosDiscretos implements GeradorDeValores {
         this.passeio = new GeradorPasseioAleatorio(faixa, random, 0.0);
     }
 
-    /** Gerador para um tipo de sensor, com faixa e degraus lidos do analisador. */
+    /**
+     * Gerador que mira a faixa de um sensor: os degraus de severidade são calculados sobre a
+     * largura dessa faixa ({@link AnalisadorDeAnomalias#escalaPara}), do mesmo jeito que o
+     * analisador os calcula — nenhum número repetido aqui.
+     */
+    public static GeradorPorEventosDiscretos para(RegraDeAnomalia faixaDoSensor,
+                                                 ParametrosDeEpisodios parametros, Random random) {
+        return new GeradorPorEventosDiscretos(faixaDoSensor, AnalisadorDeAnomalias.escalaPara(faixaDoSensor),
+                parametros, random);
+    }
+
+    /** Gerador que mira a faixa padrão do tipo no analisador (sensores sem faixa própria). */
     public static GeradorPorEventosDiscretos para(AnalisadorDeAnomalias analisador, TipoSensor tipo,
                                                  ParametrosDeEpisodios parametros, Random random) {
-        return new GeradorPorEventosDiscretos(analisador.regraDo(tipo), analisador.escala(tipo), parametros, random);
+        return para(analisador.regraDo(tipo), parametros, random);
     }
 
     @Override

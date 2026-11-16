@@ -248,4 +248,99 @@ class AnalisadorDeAnomaliasTest {
         }
 
     }
+
+    // ------------------------------------------------ faixa própria de cada sensor
+
+    @Nested
+    @DisplayName("Faixa por sensor")
+    class FaixaPorSensor {
+
+        /** TEMP-01 com a faixa padrão (0–80) e TEMP-02 com 10–60. */
+        private final ConfiguracaoSensores cfg = ConfiguracaoSensores.padrao()
+                .comSensorNovo(TipoSensor.TEMPERATURA)
+                .comFaixaDoSensor("TEMP-02", 10, 60);
+        private final AnalisadorDeAnomalias porSensor = new AnalisadorDeAnomalias(cfg);
+
+        private Optional<Alerta> analisar(String id, double valor) {
+            return porSensor.analisar(leitura(id, TipoSensor.TEMPERATURA, valor));
+        }
+
+        @Test
+        void construtorSemArgumentosUsaAConfiguracaoPadrao() {
+            AnalisadorDeAnomalias padrao = new AnalisadorDeAnomalias(ConfiguracaoSensores.padrao());
+            for (TipoSensor tipo : TipoSensor.values()) {
+                assertEquals(padrao.regraDo(tipo), analisador.regraDo(tipo));
+            }
+            assertEquals(padrao.regras(), analisador.regras());
+        }
+
+        @Test
+        void mesmoValorEhNormalNumSensorEAlertaNoOutro() {
+            assertTrue(analisar("TEMP-01", 70).isEmpty(), "70 dentro de 0–80");
+            assertTrue(analisar("TEMP-02", 70).isPresent(), "70 fora de 10–60");
+            assertTrue(analisar("TEMP-01", 5).isEmpty(), "5 dentro de 0–80");
+            assertTrue(analisar("TEMP-02", 5).isPresent(), "5 abaixo de 10");
+        }
+
+        @Test
+        void limitesDaFaixaPersonalizadaSaoInclusivos() {
+            assertTrue(analisar("TEMP-02", 60.0).isEmpty());
+            assertTrue(analisar("TEMP-02", 10.0).isEmpty());
+            assertTrue(analisar("TEMP-02", 60.1).isPresent());
+            assertTrue(analisar("TEMP-02", 9.9).isPresent());
+        }
+
+        @ParameterizedTest(name = "TEMP-02 (10–60) {0} → {1}")
+        @CsvSource({
+                // largura 50: BAIXA até 2,5 · MEDIA até 7,5 · ALTA até 15
+                "62.5, BAIXA", "62.6, MEDIA",
+                "67.5, MEDIA", "67.6, ALTA",
+                "75.0, ALTA",  "75.1, CRITICA",
+                "7.5,  BAIXA", "7.4,  MEDIA",
+        })
+        void fronteirasDeSeveridadeSobreALarguraDaFaixaDoSensor(double valor, Severidade esperada) {
+            assertEquals(esperada, analisar("TEMP-02", valor).orElseThrow().severidade());
+        }
+
+        @Test
+        void regraVioladaMostraOLimiteDoProprioSensor() {
+            assertEquals("acima do limite 60,0 °C", analisar("TEMP-02", 70).orElseThrow().regraViolada());
+            assertEquals("abaixo do limite 10,0 °C", analisar("TEMP-02", 5).orElseThrow().regraViolada());
+        }
+
+        @Test
+        void sensorDesconhecidoUsaOPadraoDoTipo() {
+            assertTrue(analisar("TEMP-77", 70).isEmpty(), "padrão 0–80");
+            assertEquals("acima do limite 80,0 °C", analisar("TEMP-77", 81).orElseThrow().regraViolada());
+        }
+
+        @Test
+        void leituraDeOutroTipoComIdConfiguradoUsaOPadraoDoTipoDaLeitura() {
+            Optional<Alerta> a = porSensor.analisar(leitura("TEMP-02", TipoSensor.PRESSAO, 9));
+            assertEquals("acima do limite 8,0 bar", a.orElseThrow().regraViolada());
+        }
+
+        @Test
+        void regraEEscalaPorSensor() {
+            assertEquals(new RegraDeAnomalia(TipoSensor.TEMPERATURA, 10, 60),
+                    porSensor.regraDo("TEMP-02", TipoSensor.TEMPERATURA));
+            assertEquals(new RegraDeAnomalia(TipoSensor.TEMPERATURA, 0, 80),
+                    porSensor.regraDo("TEMP-77", TipoSensor.TEMPERATURA));
+            assertEquals(List.of(2.5, 7.5, 15.0), porSensor.escala("TEMP-02", TipoSensor.TEMPERATURA).stream()
+                    .limit(3).map(DegrauDeSeveridade::desvioMaximo).toList());
+            assertEquals(porSensor.escala(TipoSensor.TEMPERATURA),
+                    AnalisadorDeAnomalias.escalaPara(porSensor.regraDo(TipoSensor.TEMPERATURA)));
+        }
+
+        @Test
+        void padraoDoTipoNaConfiguracaoSubstituiOPadraoDoProjeto() {
+            AnalisadorDeAnomalias a = new AnalisadorDeAnomalias(
+                    ConfiguracaoSensores.padrao().comFaixaPadrao(TipoSensor.PRESSAO, 2, 6));
+            assertEquals(new RegraDeAnomalia(TipoSensor.PRESSAO, 2, 6), a.regraDo(TipoSensor.PRESSAO));
+            // PRES-01 foi criado antes da mudança do padrão: continua 1–8
+            assertTrue(a.analisar(leitura("PRES-01", TipoSensor.PRESSAO, 7)).isEmpty());
+            // sensor que não está na configuração usa o padrão vigente (2–6)
+            assertTrue(a.analisar(leitura("PRES-77", TipoSensor.PRESSAO, 7)).isPresent());
+        }
+    }
 }

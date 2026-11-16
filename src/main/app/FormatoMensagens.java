@@ -2,7 +2,10 @@ package app;
 
 import domain.Alerta;
 import domain.LeituraTelemetria;
+import domain.ConfiguracaoSensores;
 import domain.ParametrosDeEpisodios;
+import domain.RegraDeAnomalia;
+import domain.SensorConfigurado;
 import domain.Severidade;
 import domain.TipoSensor;
 
@@ -160,9 +163,67 @@ public final class FormatoMensagens {
                 + " e esfria " + faixaEmSegundos(p.esfriamentoMinimo(), p.esfriamentoMaximo(), s);
     }
 
+    /**
+     * Linha de console com a faixa aceita de cada sensor da execução; "(propria)" marca a que é
+     * diferente da faixa padrão do tipo. Separadores ASCII ({@code |}): o cmd do Windows troca
+     * "·" por "?".
+     */
+    public static String resumoFaixas(ConfiguracaoSensores cfg) {
+        StringBuilder sb = new StringBuilder("Faixas aceitas: ");
+        String sep = "";
+        for (SensorConfigurado s : cfg.sensores()) {
+            sb.append(sep).append(s.id()).append(' ').append(faixa(s.regra()));
+            if (!s.regra().equals(cfg.padraoDo(s.tipo()))) {
+                sb.append(" (propria)");
+            }
+            sep = " | ";
+        }
+        return sb.toString();
+    }
+
+    /** {@code 10,0 a 60,0 °C} */
+    public static String faixa(RegraDeAnomalia r) {
+        return decimal(r.minimo()) + " a " + valorComUnidade(r.maximo(), r.tipo());
+    }
+
     private static String faixaEmSegundos(int minimoLeituras, int maximoLeituras, double segundosPorLeitura) {
         return decimalCompacto(minimoLeituras * segundosPorLeitura) + " a "
                 + decimalCompacto(maximoLeituras * segundosPorLeitura) + " s";
+    }
+
+    /**
+     * Número digitado na tela: aceita vírgula ou ponto decimal ("12,5", "12.5"), sinal e o
+     * milhar pt-BR de {@link #decimalCompacto} ("1.050,5"). Vazio se não for um número finito.
+     */
+    public static java.util.OptionalDouble lerNumero(String texto) {
+        if (texto == null || texto.isBlank()) {
+            return java.util.OptionalDouble.empty();
+        }
+        String t = texto.strip().replace(" ", "");
+        if (t.contains(",")) {
+            t = t.replace(".", "").replace(",", ".");     // pt-BR: ponto = milhar, vírgula = decimal
+        }
+        if (!t.matches("[+-]?\\d+(\\.\\d+)?")) {
+            return java.util.OptionalDouble.empty();
+        }
+        double v = Double.parseDouble(t);
+        return Double.isFinite(v) ? java.util.OptionalDouble.of(v) : java.util.OptionalDouble.empty();
+    }
+
+    /**
+     * Escala de severidade em texto: até quanto a leitura pode passar do limite em cada
+     * severidade, na unidade do sensor. Ex.: "até 4,0 BAIXA · 12,0 MEDIA · 24,0 ALTA · mais CRITICA (°C)"
+     * — curto para caber na coluna "Severidade além do limite" da lista da aba Configurações.
+     */
+    public static String textoEscala(java.util.List<domain.DegrauDeSeveridade> escala, TipoSensor tipo) {
+        StringBuilder sb = new StringBuilder("até ");
+        String sep = "";
+        for (domain.DegrauDeSeveridade d : escala) {
+            sb.append(sep).append(d.semLimite() ? "mais" : decimal(d.desvioMaximo())).append(' ')
+                    .append(d.severidade().name());
+            sep = " · ";
+        }
+        return sb.append(" (").append(tipo.unidade()).append(')').toString();
     }
 
     public static String inteiro(long valor) {
@@ -195,8 +256,15 @@ public final class FormatoMensagens {
         sb.append(linhaPontilhada("Período", DATA_HORA.format(e.inicio()) + " → " + HORA.format(e.fim())
                 + " (" + duracao(seg) + ")"));
         ConfiguracaoSimulacao c = e.configuracao();
-        sb.append(linhaPontilhada("Configuração", c.sensoresPorTipo() * TipoSensor.values().length + " sensores · "
-                + c.consumidores() + " consumidor(es) · intervalo " + c.intervaloMs() + " ms"));
+        ConfiguracaoSensores sc = e.sensores();
+        sb.append(linhaPontilhada("Configuração", sc.sensores().size() + " sensores · "
+                + c.consumidores() + " consumidor(es) · intervalo " + sc.intervaloMs() + " ms"));
+
+        sb.append("\nFAIXAS ACEITAS (por sensor)\n");
+        for (SensorConfigurado s : sc.sensores()) {
+            String marca = s.regra().equals(sc.padraoDo(s.tipo())) ? "" : "   (diferente do padrão do tipo)";
+            sb.append(String.format("  %-13s %s%s%n", s.id(), faixa(s.regra()), marca));
+        }
 
         sb.append("\nLEITURAS\n");
         sb.append("  ").append(linhaPontilhada("Produzidas", inteiro(e.leiturasProduzidas())));

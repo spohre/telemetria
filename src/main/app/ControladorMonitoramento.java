@@ -1,6 +1,11 @@
 package app;
 
 import domain.Alerta;
+import domain.AnalisadorDeAnomalias;
+import domain.ConfiguracaoSensores;
+import domain.DegrauDeSeveridade;
+import domain.RegraDeAnomalia;
+import domain.TipoSensor;
 
 import java.util.List;
 import java.util.Map;
@@ -38,7 +43,7 @@ public interface ControladorMonitoramento {
      * Sensores disponíveis (id → tipo, em ordem de id): os da execução atual ou, com o sistema
      * parado, os que a configuração atual cria. Rápido e sem bloqueio: pode ser chamado na EDT.
      */
-    Map<String, domain.TipoSensor> sensoresDisponiveis();
+    Map<String, TipoSensor> sensoresDisponiveis();
 
     /**
      * Liga a thread de um sensor desligado (a sequência de leituras continua de onde parou).
@@ -70,13 +75,54 @@ public interface ControladorMonitoramento {
     /** Demorado: consulta alertas persistidos (inclusive de execuções anteriores). */
     List<Alerta> buscarAlertas(FiltroAlertas filtro);
 
-    /** Regras de anomalia em vigor, para exibição. */
+    /** Faixa PADRÃO de cada tipo (a que os sensores novos recebem), para exibição. */
     List<RegraExibida> regras();
+
+    /**
+     * Faixa de cada sensor disponível (id → regra), para os cartões e gráficos. Rápido e sem
+     * bloqueio: pode ser chamado na EDT.
+     */
+    default Map<String, RegraExibida> regrasDosSensores() {
+        Map<String, RegraExibida> r = new java.util.LinkedHashMap<>();
+        configuracaoSensores().sensores().forEach(s -> r.put(s.id(), RegraExibida.de(s.regra())));
+        return r;
+    }
+
+    /** Escala de severidade de uma faixa (quanto pode passar do limite em cada severidade), para exibição. */
+    default List<DegrauDeSeveridade> escalaDe(RegraDeAnomalia faixa) {
+        return AnalisadorDeAnomalias.escalaPara(faixa);
+    }
 
     ConfiguracaoSimulacao configuracao();
 
     /** Só permitido com o sistema PARADO. */
     void aplicarConfiguracao(ConfiguracaoSimulacao nova);
+
+    // ---- configuração dos sensores (aba Configurações). Todos: só com o sistema PARADO
+    //      (senão IllegalStateException); valor inválido → IllegalArgumentException com a
+    //      mensagem para a tela; banco sem gravar → FalhaDeOperacao, e nada muda.
+    //      Demorados (gravam no banco): chamar em SwingWorker.
+
+    /** Configuração atual: sensores, faixa de cada um, faixa padrão por tipo e intervalo. Rápido. */
+    ConfiguracaoSensores configuracaoSensores();
+
+    /** Cria um sensor do tipo, com o próximo id livre e a faixa padrão do tipo. Devolve a configuração nova. */
+    ConfiguracaoSensores adicionarSensor(TipoSensor tipo);
+
+    /**
+     * Tira um sensor da configuração (a faixa dele some; os alertas já gravados continuam no
+     * histórico). Não remove o último sensor da configuração.
+     */
+    ConfiguracaoSensores removerSensor(String sensorId);
+
+    /** Muda a faixa aceita de UM sensor. */
+    ConfiguracaoSensores alterarFaixaSensor(String sensorId, double minimo, double maximo);
+
+    /** Muda a faixa padrão de um tipo (só vale para sensores criados depois). */
+    ConfiguracaoSensores alterarFaixaPadrao(TipoSensor tipo, double minimo, double maximo);
+
+    /** Muda o intervalo entre leituras (o mesmo para todos os sensores), em ms. */
+    ConfiguracaoSensores alterarIntervalo(int intervaloMs);
 
     /** Demorado: grava o extrato em arquivo e devolve o caminho. */
     String exportarExtrato(ExtratoExecucao extrato);

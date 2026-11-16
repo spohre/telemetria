@@ -1,16 +1,22 @@
 package app;
 
+import domain.ConfiguracaoSensores;
 import domain.Severidade;
 import domain.TipoSensor;
 
 import java.time.Instant;
 import java.util.Map;
 
-/** Resumo final de uma execução — exibido no DialogoExtrato e gravado em arquivo. */
+/**
+ * Resumo final de uma execução — exibido no DialogoExtrato e gravado em arquivo.
+ *
+ * @param sensores sensores, faixas e intervalo em vigor na execução
+ */
 public record ExtratoExecucao(
         Instant inicio,
         Instant fim,
         ConfiguracaoSimulacao configuracao,
+        ConfiguracaoSensores sensores,
         long leiturasProduzidas,
         long leiturasProcessadas,
         Map<TipoSensor, Map<Severidade, Long>> alertasPorTipo,

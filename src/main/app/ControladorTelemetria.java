@@ -2,12 +2,14 @@ package app;
 
 import domain.Alerta;
 import domain.AnalisadorDeAnomalias;
+import domain.ConfiguracaoSensores;
 import domain.GeradorPorEventosDiscretos;
 import domain.LeituraTelemetria;
 import domain.ParametrosDeEpisodios;
 import domain.RepositorioDeAlertas;
+import domain.RepositorioDeConfiguracao;
+import domain.SensorConfigurado;
 import domain.Sensor;
-import domain.Severidade;
 import domain.TipoSensor;
 import infra.FilaDeLeituras;
 import infra.LogArquivo;
@@ -66,45 +68,48 @@ import java.util.concurrent.TimeUnit;
  */
 public class ControladorTelemetria implements ControladorMonitoramento {
 
-    public static final ConfiguracaoSimulacao CONFIGURACAO_PADRAO = new ConfiguracaoSimulacao(1, 200, 1);
+    public static final ConfiguracaoSimulacao CONFIGURACAO_PADRAO = new ConfiguracaoSimulacao(1);
 
     static final Path CAMINHO_LOG = LogArquivo.CAMINHO_PADRAO;
     /** Sem extrato, uma pausa maior que esta entre duas leituras do log separa duas execuções. */
     static final Duration SEPARACAO_ENTRE_EXECUCOES = Duration.ofSeconds(60);
     private static final long ESPERA_SENSOR_MS = 5_000;
     private static final long ESPERA_CONSUMIDORES_MS = 60_000;
-    private static final Map<TipoSensor, String> PREFIXOS = Map.of(
-            TipoSensor.TEMPERATURA, "TEMP",
-            TipoSensor.VELOCIDADE, "VEL",
-            TipoSensor.PRESSAO, "PRES",
-            TipoSensor.UMIDADE, "UMID");
 
     private final RepositorioDeAlertas repositorio;
+    private final RepositorioDeConfiguracao repositorioConfiguracao;
     private final String descricaoBanco;
     private final Path raiz;
     private final int capacidadeFila;
     private final Clock relogio;
     private final PrintStream console;
-    private final AnalisadorDeAnomalias analisador = new AnalisadorDeAnomalias();
 
     private final List<OuvinteTelemetria> ouvintes = new CopyOnWriteArrayList<>();
     private final OuvinteTelemetria difusor = new Difusor();
 
     private volatile FaseSistema fase = FaseSistema.PARADO;
     private volatile ConfiguracaoSimulacao configuracao = CONFIGURACAO_PADRAO;
+    /**
+     * Sensores, faixas e intervalo. Imutável; só é TROCADO (sob o lock deste objeto e só com o
+     * sistema PARADO) e lido por quem precisa (volatile). Cada execução guarda a sua cópia.
+     */
+    private volatile ConfiguracaoSensores configuracaoSensores;
     private volatile ParametrosDeEpisodios parametrosEpisodios = ParametrosDeEpisodios.padrao();
 
     // Estado de uma execução: criado em iniciar(), lido pelas estatísticas (volatile).
     private volatile Execucao execucao;
 
-    /** Tudo o que pertence a uma execução (de Iniciar a Parar). */
     /**
+     * Tudo o que pertence a uma execução (de Iniciar a Parar).
+     *
+     * @param sensoresCfg     configuração dos sensores em vigor nesta execução (faixas, intervalo)
      * @param sensores        todos os sensores da execução, por id (fixo depois de criado)
      * @param threadsSensores thread ATUAL de cada sensor. Muda quando um sensor é desligado e
      *                        ligado de novo (nova thread); escrito só sob o lock deste controlador
      *                        e lido também pelas estatísticas, por isso ConcurrentHashMap.
      */
-    private record Execucao(Instant inicio, ConfiguracaoSimulacao config, FilaDeLeituras fila,
+    private record Execucao(Instant inicio, ConfiguracaoSimulacao config, ConfiguracaoSensores sensoresCfg,
+                            FilaDeLeituras fila,
                             ContadoresExecucao contadores, LogArquivo log, Map<String, Sensor> sensores,
                             Map<String, Thread> threadsSensores, List<Thread> threadsConsumidores,
                             ScheduledExecutorService agendador) {
@@ -112,14 +117,19 @@ public class ControladorTelemetria implements ControladorMonitoramento {
 
     /**
      * @param repositorio    onde os alertas são gravados e consultados
+     * @param repositorioConfiguracao onde a configuração dos sensores é gravada; lida aqui, no
+     *                       construtor (vazia → padrão, que é gravado; banco fora do ar → padrão
+     *                       só em memória, com aviso no console)
      * @param descricaoBanco texto para o extrato (ex.: a URL JDBC)
      * @param raiz           pasta base: o log vai em {@code raiz/data/leituras.log} e os extratos em {@code raiz/data/}
      * @param capacidadeFila capacidade da {@link FilaDeLeituras}
      * @param console        onde imprimir as linhas de console; {@code null} = silencioso
      */
-    public ControladorTelemetria(RepositorioDeAlertas repositorio, String descricaoBanco, Path raiz,
-                                 int capacidadeFila, PrintStream console, Clock relogio) {
+    public ControladorTelemetria(RepositorioDeAlertas repositorio, RepositorioDeConfiguracao repositorioConfiguracao,
+                                 String descricaoBanco, Path raiz, int capacidadeFila, PrintStream console,
+                                 Clock relogio) {
         this.repositorio = Objects.requireNonNull(repositorio, "repositorio");
+        this.repositorioConfiguracao = Objects.requireNonNull(repositorioConfiguracao, "repositorioConfiguracao");
         this.descricaoBanco = Objects.requireNonNull(descricaoBanco, "descricaoBanco");
         this.raiz = Objects.requireNonNull(raiz, "raiz");
         this.capacidadeFila = capacidadeFila;
@@ -128,10 +138,39 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         if (console != null) {
             ouvintes.add(new OuvinteConsole(console, relogio));
         }
+        this.configuracaoSensores = carregarConfiguracaoSensores();
     }
 
-    public ControladorTelemetria(RepositorioDeAlertas repositorio, String descricaoBanco, Path raiz, PrintStream console) {
-        this(repositorio, descricaoBanco, raiz, FilaDeLeituras.CAPACIDADE_PADRAO, console, Clock.systemDefaultZone());
+    public ControladorTelemetria(RepositorioDeAlertas repositorio, RepositorioDeConfiguracao repositorioConfiguracao,
+                                 String descricaoBanco, Path raiz, PrintStream console) {
+        this(repositorio, repositorioConfiguracao, descricaoBanco, raiz, FilaDeLeituras.CAPACIDADE_PADRAO, console,
+                Clock.systemDefaultZone());
+    }
+
+    /**
+     * Configuração gravada; na primeira execução, o padrão (e grava). Banco indisponível não
+     * impede o programa: usa o padrão só em memória e avisa.
+     */
+    private ConfiguracaoSensores carregarConfiguracaoSensores() {
+        Optional<ConfiguracaoSensores> gravada;
+        try {
+            gravada = repositorioConfiguracao.carregar();
+        } catch (RuntimeException e) {
+            imprimir(FormatoMensagens.Nivel.AVISO, "config", "Configuração dos sensores não pôde ser lida ("
+                    + e.getMessage() + "). Usando o padrão: 4 sensores, 200 ms.");
+            return ConfiguracaoSensores.padrao();
+        }
+        if (gravada.isPresent()) {
+            return gravada.get();
+        }
+        ConfiguracaoSensores padrao = ConfiguracaoSensores.padrao();
+        try {
+            repositorioConfiguracao.salvar(padrao);
+        } catch (RuntimeException e) {
+            imprimir(FormatoMensagens.Nivel.AVISO, "config", "Configuração padrão não pôde ser gravada ("
+                    + e.getMessage() + ").");
+        }
+        return padrao;
     }
 
     // ================================================================== ciclo de vida
@@ -171,7 +210,10 @@ public class ControladorTelemetria implements ControladorMonitoramento {
      */
     private boolean iniciarExecucao(java.util.function.Predicate<String> ligar) {
         ConfiguracaoSimulacao cfg = configuracao;
+        ConfiguracaoSensores sensoresCfg = configuracaoSensores;
         ParametrosDeEpisodios episodios = parametrosEpisodios;
+        // um analisador por execução, com a faixa de cada sensor; imutável → compartilhado pelos consumidores sem lock
+        AnalisadorDeAnomalias analisador = new AnalisadorDeAnomalias(sensoresCfg);
         LogArquivo log;
         try {
             log = new LogArquivo(raiz.resolve(CAMINHO_LOG), FormatoMensagens.CABECALHO_LOG);
@@ -192,12 +234,13 @@ public class ControladorTelemetria implements ControladorMonitoramento {
 
         Map<String, Sensor> sensores = new TreeMap<>();                    // ordem de id
         Map<String, Thread> threadsSensores = new ConcurrentHashMap<>();
-        sensoresDaConfiguracao(cfg).forEach((id, tipo) -> {
-            Sensor s = new Sensor(id, tipo, cfg.intervaloMs(),
-                    GeradorPorEventosDiscretos.para(analisador, tipo, episodios, new Random()), fila, relogio);
-            sensores.put(id, s);
-            threadsSensores.put(id, new Thread(s, "sensor-" + id));
-        });
+        for (SensorConfigurado sc : sensoresCfg.sensores()) {
+            // cada gerador mira a faixa do PRÓPRIO sensor; usado só pela thread dele (confinamento)
+            Sensor s = new Sensor(sc.id(), sc.tipo(), sensoresCfg.intervaloMs(),
+                    GeradorPorEventosDiscretos.para(sc.regra(), episodios, new Random()), fila, relogio);
+            sensores.put(sc.id(), s);
+            threadsSensores.put(sc.id(), new Thread(s, "sensor-" + sc.id()));
+        }
 
         ScheduledExecutorService agendador = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "estatisticas");
@@ -205,7 +248,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
             return t;
         });
 
-        Execucao ex = new Execucao(relogio.instant(), cfg, fila, contadores, log,
+        Execucao ex = new Execucao(relogio.instant(), cfg, sensoresCfg, fila, contadores, log,
                 java.util.Collections.unmodifiableMap(sensores), threadsSensores, List.copyOf(consumidores), agendador);
         execucao = ex;
 
@@ -213,8 +256,10 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         String quantos = ligados.size() == sensores.size() ? sensores.size() + " sensores"
                 : ligados.size() + " de " + sensores.size() + " sensores";
         imprimir(FormatoMensagens.Nivel.INFO, "sistema", quantos + " e " + cfg.consumidores()
-                + " consumidor(es) iniciados (intervalo " + cfg.intervaloMs() + " ms)");
-        imprimir(FormatoMensagens.Nivel.INFO, "sistema", FormatoMensagens.resumoEpisodios(episodios, cfg.intervaloMs()));
+                + " consumidor(es) iniciados (intervalo " + sensoresCfg.intervaloMs() + " ms)");
+        imprimir(FormatoMensagens.Nivel.INFO, "sistema", FormatoMensagens.resumoFaixas(sensoresCfg));
+        imprimir(FormatoMensagens.Nivel.INFO, "sistema",
+                FormatoMensagens.resumoEpisodios(episodios, sensoresCfg.intervaloMs()));
         consumidores.forEach(Thread::start);       // consumidores primeiro: já esperam na fila
         ligados.forEach(id -> threadsSensores.get(id).start());
         agendador.scheduleAtFixedRate(this::publicarEstatisticas, 1, 1, TimeUnit.SECONDS);
@@ -222,14 +267,10 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         return true;
     }
 
-    /** Ids e tipos dos sensores que uma configuração cria (TEMP-01, TEMP-02…, VEL-01…), em ordem de id. */
-    static Map<String, TipoSensor> sensoresDaConfiguracao(ConfiguracaoSimulacao cfg) {
+    /** Ids e tipos dos sensores de uma configuração, em ordem de id (a mesma da execução). */
+    static Map<String, TipoSensor> sensoresDaConfiguracao(ConfiguracaoSensores cfg) {
         Map<String, TipoSensor> r = new TreeMap<>();
-        for (TipoSensor tipo : TipoSensor.values()) {
-            for (int n = 1; n <= cfg.sensoresPorTipo(); n++) {
-                r.put(String.format("%s-%02d", PREFIXOS.get(tipo), n), tipo);
-            }
-        }
+        cfg.sensores().forEach(s -> r.put(s.id(), s.tipo()));
         return r;
     }
 
@@ -304,7 +345,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         }
 
         publicarEstatisticas(ex);   // números finais na barra de status
-        ExtratoExecucao extrato = new ExtratoExecucao(ex.inicio(), relogio.instant(), ex.config(),
+        ExtratoExecucao extrato = new ExtratoExecucao(ex.inicio(), relogio.instant(), ex.config(), ex.sensoresCfg(),
                 ex.fila().publicadas(), ex.contadores().processadas(), ex.contadores().alertasPorTipo(),
                 ex.contadores().alertasSalvos(), raiz.resolve(CAMINHO_LOG).toString(), descricaoBanco);
 
@@ -359,7 +400,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
     public synchronized void iniciarSensor(String sensorId) {
         if (fase == FaseSistema.PARADO) {
             // sistema todo parado: sobe a execução (fila, consumidores, log) só com este sensor
-            if (!sensoresDaConfiguracao(configuracao).containsKey(sensorId)) {
+            if (configuracaoSensores.regraDo(sensorId).isEmpty()) {
                 throw new IllegalArgumentException("Sensor desconhecido: " + sensorId);
             }
             if (iniciarExecucao(sensorId::equals)) {
@@ -432,7 +473,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
     public Map<String, TipoSensor> sensoresDisponiveis() {
         Execucao ex = execucao;
         if (fase == FaseSistema.PARADO || ex == null) {
-            return sensoresDaConfiguracao(configuracao);
+            return sensoresDaConfiguracao(configuracaoSensores);
         }
         Map<String, TipoSensor> r = new java.util.LinkedHashMap<>();
         ex.sensores().forEach((id, s) -> r.put(id, s.tipo()));
@@ -445,7 +486,7 @@ public class ControladorTelemetria implements ControladorMonitoramento {
         Execucao ex = execucao;
         Map<String, EstadoSensor> estados = new java.util.LinkedHashMap<>();
         if (fase == FaseSistema.PARADO || ex == null) {
-            sensoresDaConfiguracao(configuracao).keySet().forEach(id -> estados.put(id, EstadoSensor.DESLIGADO));
+            sensoresDaConfiguracao(configuracaoSensores).keySet().forEach(id -> estados.put(id, EstadoSensor.DESLIGADO));
             return estados;
         }
         ex.sensores().forEach((id, s) -> {
@@ -533,15 +574,12 @@ public class ControladorTelemetria implements ControladorMonitoramento {
     }
 
     /**
-     * Regras para a aba "Regras e sensores": faixa aceita e a escala de severidade
-     * (quanto a leitura passou do limite). A severidade "principal" é a mínima, BAIXA.
+     * Faixa padrão de cada tipo com a escala de severidade (quanto a leitura passou do limite).
+     * A severidade "principal" é a mínima, BAIXA.
      */
     @Override
     public List<RegraExibida> regras() {
-        return analisador.regras().stream()
-                .map(r -> new RegraExibida(r.tipo(), r.minimo(), r.maximo(), Severidade.BAIXA,
-                        analisador.escala(r.tipo())))
-                .toList();
+        return configuracaoSensores.padroes().values().stream().map(RegraExibida::de).toList();
     }
 
     @Override
@@ -555,6 +593,76 @@ public class ControladorTelemetria implements ControladorMonitoramento {
             throw new IllegalStateException("Só é possível alterar a simulação com o sistema parado");
         }
         configuracao = Objects.requireNonNull(nova, "nova");
+    }
+
+    // ------------------------------------------------------------------ configuração dos sensores
+
+    @Override
+    public ConfiguracaoSensores configuracaoSensores() {
+        return configuracaoSensores;
+    }
+
+    @Override
+    public synchronized ConfiguracaoSensores adicionarSensor(TipoSensor tipo) {
+        exigirParadoParaConfigurar();
+        ConfiguracaoSensores nova = configuracaoSensores.comSensorNovo(Objects.requireNonNull(tipo, "tipo"));
+        String id = nova.sensores().get(nova.sensores().size() - 1).id();
+        return gravar(nova, "Sensor " + id + " criado com a faixa " + FormatoMensagens.faixa(nova.regraDo(id).orElseThrow()));
+    }
+
+    @Override
+    public synchronized ConfiguracaoSensores removerSensor(String sensorId) {
+        exigirParadoParaConfigurar();
+        return gravar(configuracaoSensores.semSensor(sensorId), "Sensor " + sensorId + " removido");
+    }
+
+    @Override
+    public synchronized ConfiguracaoSensores alterarFaixaSensor(String sensorId, double minimo, double maximo) {
+        exigirParadoParaConfigurar();
+        ConfiguracaoSensores nova = configuracaoSensores.comFaixaDoSensor(sensorId, minimo, maximo);
+        return gravar(nova, "Faixa do sensor " + sensorId + ": " + FormatoMensagens.faixa(nova.regraDo(sensorId).orElseThrow()));
+    }
+
+    @Override
+    public synchronized ConfiguracaoSensores alterarFaixaPadrao(TipoSensor tipo, double minimo, double maximo) {
+        exigirParadoParaConfigurar();
+        ConfiguracaoSensores nova = configuracaoSensores.comFaixaPadrao(tipo, minimo, maximo);
+        return gravar(nova, "Faixa padrão de " + tipo.nome() + " (sensores novos): " + FormatoMensagens.faixa(nova.padraoDo(tipo)));
+    }
+
+    @Override
+    public synchronized ConfiguracaoSensores alterarIntervalo(int intervaloMs) {
+        exigirParadoParaConfigurar();
+        return gravar(configuracaoSensores.comIntervalo(intervaloMs), "Intervalo entre leituras: " + intervaloMs + " ms");
+    }
+
+    /**
+     * Usa esta configuração na PRÓXIMA execução sem gravá-la (modo console: {@code --sensores} e
+     * {@code --intervalo} valem só para aquela execução). Só com o sistema PARADO.
+     */
+    public synchronized void usarSemGravar(ConfiguracaoSensores cfg) {
+        exigirParadoParaConfigurar();
+        configuracaoSensores = Objects.requireNonNull(cfg, "cfg");
+    }
+
+    private void exigirParadoParaConfigurar() {
+        if (fase != FaseSistema.PARADO) {
+            throw new IllegalStateException("Pare o sistema para alterar as configurações dos sensores");
+        }
+    }
+
+    /** Grava primeiro; só troca a configuração em memória se o banco gravou. Chamado sob o lock. */
+    private ConfiguracaoSensores gravar(ConfiguracaoSensores nova, String descricao) {
+        try {
+            repositorioConfiguracao.salvar(nova);
+        } catch (RuntimeException e) {
+            throw new FalhaDeOperacao("A configuração não foi salva: o banco de dados não respondeu.",
+                    "Confira se o arquivo data/telemetria.mv.db não está aberto em outro programa e tente de novo. "
+                            + "Nada foi alterado.", e);
+        }
+        configuracaoSensores = nova;
+        imprimir(FormatoMensagens.Nivel.INFO, "config", descricao);
+        return nova;
     }
 
     /** Parâmetros da simulação de episódios de anomalia usados na próxima execução. */

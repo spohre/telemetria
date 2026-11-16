@@ -1,6 +1,8 @@
 package app;
 
 import domain.Alerta;
+import domain.ConfiguracaoSensores;
+import domain.RepositorioDeConfiguracao;
 import domain.LeituraTelemetria;
 import domain.RepositorioDeAlertas;
 import domain.Severidade;
@@ -10,6 +12,7 @@ import infra.PersistenciaException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -80,4 +83,27 @@ final class Dubles {
         }
     }
 
+    /** Repositório de configuração em memória; pode ser "desligado" para simular banco fora do ar. */
+    static class ConfiguracaoFalsa implements RepositorioDeConfiguracao {
+        volatile ConfiguracaoSensores gravada;
+        final AtomicBoolean fora = new AtomicBoolean(false);
+        final AtomicLong gravacoes = new AtomicLong();
+
+        @Override
+        public Optional<ConfiguracaoSensores> carregar() {
+            if (fora.get()) {
+                throw new PersistenciaException("Falha ao ler a configuração", new RuntimeException("conexão recusada"));
+            }
+            return Optional.ofNullable(gravada);
+        }
+
+        @Override
+        public void salvar(ConfiguracaoSensores configuracao) {
+            if (fora.get()) {
+                throw new PersistenciaException("Falha ao salvar a configuração", new RuntimeException("conexão recusada"));
+            }
+            gravada = configuracao;
+            gravacoes.incrementAndGet();
+        }
+    }
 }

@@ -1,6 +1,12 @@
 EXTRATO DA EXECUÇÃO — Central de Telemetria
-Período ......... 10/11/2026 17:12:10 → 17:12:40 (0:00:30)
+Período ......... 15/11/2026 22:03:57 → 22:04:27 (0:00:30)
 Configuração .... 4 sensores · 1 consumidor(es) · intervalo 200 ms
+
+FAIXAS ACEITAS (por sensor)
+  TEMP-01       0,0 a 80,0 °C
+  VEL-01        0,0 a 120,0 km/h
+  PRES-01       1,0 a 8,0 bar
+  UMID-01       20,0 a 90,0 %
 
 LEITURAS
   Produzidas ...... 600
@@ -8,11 +14,11 @@ LEITURAS
   Perdidas ........ 0   (produzidas − processadas)
 
 ALERTAS POR TIPO / SEVERIDADE
-  TEMPERATURA   BAIXA 0    MEDIA 4    ALTA 4    CRITICA 0     total 8
-  VELOCIDADE    BAIXA 0    MEDIA 4    ALTA 3    CRITICA 0     total 7
-  PRESSAO       BAIXA 26   MEDIA 0    ALTA 0    CRITICA 0     total 26
-  UMIDADE       BAIXA 10   MEDIA 0    ALTA 0    CRITICA 0     total 10
-  TOTAL ........... 51 alertas  (gravados no banco: 51)
+  TEMPERATURA   BAIXA 18   MEDIA 7    ALTA 0    CRITICA 0     total 25
+  VELOCIDADE    BAIXA 4    MEDIA 6    ALTA 0    CRITICA 0     total 10
+  PRESSAO       BAIXA 2    MEDIA 5    ALTA 0    CRITICA 0     total 7
+  UMIDADE       BAIXA 38   MEDIA 0    ALTA 0    CRITICA 0     total 38
+  TOTAL ........... 80 alertas  (gravados no banco: 80)
 
 ARQUIVOS
   Log de leituras  data/leituras.log

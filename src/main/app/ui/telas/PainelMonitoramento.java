@@ -41,10 +41,11 @@ import static app.ui.tema.Tema.Medida;
 /**
  * ABA MONITORAMENTO
  * <pre>
- * ┌ Sensores ─────────────────────────────────────────────────────────────────────────┐
- * │ [TEMP-01 92,5 °C] [VEL-01 64 km/h] [PRES-01 3,8 bar] [UMID-01 30 %]  (colunas      │
- * │                                                       se ajustam à largura; 2 linhas│
- * │                                                       visíveis, depois rola)       │
+ * ┌ Sensores ──────────────────────────────────────────────────────────────────────────┐
+ * │ [PRES-02 3,8 bar] [TEMP-01 92,5 °C] [TEMP-02 41 °C] [UMID-01 30 %]   (até 4 cartões   │
+ * │  [ Ver gráfico ]   [ Ver gráfico ]   [Fechar gráfico] [ Ver gráfico ]  por página)     │
+ * │        [‹ Anterior]  Página 2 de 3 · sensores 5–8 de 10  [Próxima ›]   ← só com > 4    │
+ * │ ─ Gráfico · TEMP-02 (quando aberto) ──────────────────────────────────────────────── │
  * ├ Leituras em tempo real ────────── 62% ────────┬ Alertas recentes ─── 38% ─────────┤
  * │ Hora | Sensor | Tipo | Valor | Estado         │ [ALTA] TEMP-01 92,5 °C      19:46 │
  * │ (últimas 200, mais recente no topo)           │ acima do limite 80,0 °C · #128    │
@@ -56,11 +57,16 @@ public final class PainelMonitoramento extends JPanel {
 
     private static final long serialVersionUID = 1L;
     private static final int MAX_ALERTAS = 50;
-    private static final int LARGURA_MIN_CARTAO = 230;
+    /** 4 cartões lado a lado cabem na janela mínima (1024 px). */
+    private static final int LARGURA_MIN_CARTAO = 215;
     private static final int ALTURA_CARTAO = CartaoSensor.ALTURA;
+    /** Cartões por página: com mais sensores que isto, a seção ganha a paginação. */
+    static final int CARTOES_POR_PAGINA = 4;
 
     private final Map<String, CartaoSensor> cartoes = new java.util.TreeMap<>();   // ordenados por id
     private final Map<TipoSensor, RegraExibida> regras = new LinkedHashMap<>();
+    /** Faixa própria de cada sensor (id → regra); sem entrada, vale a faixa padrão do tipo. */
+    private final Map<String, RegraExibida> regrasDosSensores = new java.util.HashMap<>();
     private final GradeCartoes grade = new GradeCartoes();
     private final DefaultTableModel modeloLeituras = new DefaultTableModel(
             new Object[]{"Hora", "Sensor", "Tipo", "Valor", "Estado"}, 0) {
@@ -77,6 +83,15 @@ public final class PainelMonitoramento extends JPanel {
     private final JLabel contagemAlertas = Componentes.rotulo("0", Fonte.DADO_NEGRITO, Cor.TEXTO_SECUNDARIO);
     private long totalAlertas;
 
+    // ---- paginação dos cartões (todos continuam existindo e recebendo dados; só 4 aparecem)
+    private int pagina;                                   // a partir de 0
+    private final JButton paginaAnterior = Componentes.botaoPequeno("‹ Anterior", Componentes.Estilo.DESTAQUE);
+    private final JButton proximaPagina = Componentes.botaoPequeno("Próxima ›", Componentes.Estilo.DESTAQUE);
+    private final JLabel infoPagina = Componentes.rotulo("", Fonte.DADO, Cor.TEXTO_SECUNDARIO);
+    /** Logo abaixo dos cartões (acima do gráfico, quando aberto), centralizado. */
+    private final JPanel paginador = Componentes.transparente(new java.awt.FlowLayout(java.awt.FlowLayout.CENTER,
+            Medida.ESP_3, 0));
+
     private final java.util.function.BiConsumer<String, CartaoSensor.Acao> aoPedirAcaoSensor;
     private boolean controleHabilitado;
 
@@ -92,7 +107,7 @@ public final class PainelMonitoramento extends JPanel {
         setLayout(new GridBagLayout());
 
         // ---- sensores: mensagem de vazio × grade
-        JLabel vazio = Componentes.rotulo("Nenhum sensor configurado — ajuste a simulação na aba Regras e sensores.",
+        JLabel vazio = Componentes.rotulo("Nenhum sensor configurado — adicione sensores na aba Configurações.",
                 Fonte.CORPO, Cor.TEXTO_SECUNDARIO);
         vazio.setHorizontalAlignment(SwingConstants.CENTER);
         vazio.setIcon(Icones.de(Icone.SENSOR, Medida.ICONE_GRANDE, Cor.TEXTO_DESATIVADO));
@@ -105,9 +120,21 @@ public final class PainelMonitoramento extends JPanel {
         areaSensores.setMinimumSize(new Dimension(0, ALTURA_CARTAO));
         areaSensores.add(rolagemGrade, "grade");
         // área "Ver gráfico": escondida até o usuário pedir o gráfico de um sensor
+        // cartões → paginação (só com mais de 4) → área "Ver gráfico"
+        JPanel cartoesEPaginas = Componentes.transparente(new BorderLayout(0, Medida.ESP_2));
+        cartoesEPaginas.add(areaSensores, BorderLayout.CENTER);
+        cartoesEPaginas.add(paginador, BorderLayout.SOUTH);
         JPanel conteudoSensores = Componentes.transparente(new BorderLayout(0, Medida.ESP_3));
-        conteudoSensores.add(areaSensores, BorderLayout.CENTER);
+        conteudoSensores.add(cartoesEPaginas, BorderLayout.CENTER);
         conteudoSensores.add(criarAreaGrafico(), BorderLayout.SOUTH);
+        paginador.add(paginaAnterior);
+        paginador.add(infoPagina);
+        paginador.add(proximaPagina);
+        paginador.setVisible(false);
+        paginaAnterior.setToolTipText("Sensores anteriores");
+        proximaPagina.setToolTipText("Próximos sensores");
+        paginaAnterior.addActionListener(e -> irParaPagina(pagina - 1));
+        proximaPagina.addActionListener(e -> irParaPagina(pagina + 1));
         JPanel secSensores = Componentes.secao("Sensores", Icone.SENSOR, conteudoSensores);
 
         // ---- tabela ao vivo
@@ -194,15 +221,20 @@ public final class PainelMonitoramento extends JPanel {
                                          java.util.Map<String, app.EstadoSensor> estados, boolean controleAtivo) {
         controleHabilitado = controleAtivo;
         boolean mudou = cartoes.keySet().retainAll(disponiveis.keySet());
-        if (mudou) {
-            grade.removeAll();
-            cartoes.values().forEach(grade::add);           // TreeMap: continua em ordem de id
+        if (mudou && faseAtual == app.FaseSistema.PARADO) {
+            // sensor removido na aba Configurações: o gráfico guardado dele também sai (um sensor
+            // criado depois com o mesmo id começa sem o histórico do antigo)
+            graficos.keySet().retainAll(disponiveis.keySet());
         }
-        disponiveis.forEach((id, tipo) -> {
-            if (!cartoes.containsKey(id)) {
-                criarCartao(id, tipo);
+        for (Map.Entry<String, TipoSensor> d : disponiveis.entrySet()) {
+            if (!cartoes.containsKey(d.getKey())) {
+                criarCartao(d.getKey(), d.getValue());
+                mudou = true;
             }
-        });
+        }
+        if (mudou) {
+            mostrarPagina();                              // páginas recalculadas; fica na atual se ainda existir
+        }
         cartoes.forEach((id, c) -> c.definirEstado(estados.getOrDefault(id, app.EstadoSensor.DESLIGADO), controleAtivo));
         trocaVazio.show(areaSensores, cartoes.isEmpty() ? "vazio" : "grade");
         if (sensorDoGrafico != null && !disponiveis.containsKey(sensorDoGrafico)) {
@@ -213,16 +245,77 @@ public final class PainelMonitoramento extends JPanel {
         grade.repaint();
     }
 
+    /** Faixa do sensor; sem faixa própria informada, a padrão do tipo. */
+    private RegraExibida regraDe(String id, TipoSensor tipo) {
+        RegraExibida propria = regrasDosSensores.get(id);
+        if (propria != null && propria.tipo() == tipo) {
+            return propria;
+        }
+        return regras.getOrDefault(tipo, new RegraExibida(tipo, 0, 100, Severidade.MEDIA));
+    }
+
+    /**
+     * Faixa de cada sensor (EDT). Cartões e gráficos que já existem passam a mostrar a faixa
+     * nova (o histórico do gráfico é mantido); os criados depois já nascem com ela.
+     */
+    public void definirRegrasDosSensores(Map<String, RegraExibida> porSensor) {
+        if (porSensor.equals(regrasDosSensores)) {
+            return;                                  // chamado a cada 1 s: só trabalha quando muda
+        }
+        regrasDosSensores.clear();
+        regrasDosSensores.putAll(porSensor);
+        cartoes.forEach((id, c) -> c.definirRegra(regraDe(id, c.tipo())));
+        graficos.forEach((id, g) -> {
+            CartaoSensor c = cartoes.get(id);
+            if (c != null) {
+                g.definirRegra(regraDe(id, c.tipo()));
+            }
+        });
+    }
+
     private CartaoSensor criarCartao(String id, TipoSensor tipo) {
-        RegraExibida r = regras.getOrDefault(tipo, new RegraExibida(tipo, 0, 100, Severidade.MEDIA));
+        RegraExibida r = regraDe(id, tipo);
         CartaoSensor novo = new CartaoSensor(id, tipo, r, aoPedirAcaoSensor, this::alternarGrafico);
         novo.marcarGraficoAberto(id.equals(sensorDoGrafico));
-        int posicao = (int) cartoes.keySet().stream().filter(k -> k.compareTo(id) < 0).count();
-        cartoes.put(id, novo);
-        grade.add(novo, posicao);                // mantém a grade em ordem alfabética
-        trocaVazio.show(areaSensores, "grade");
-        revalidate();
+        cartoes.put(id, novo);                   // TreeMap: ordem de id
+        mostrarPagina();
         return novo;
+    }
+
+    // ================================================================== paginação
+
+    /**
+     * Mostra na grade só os cartões da página atual (até {@link #CARTOES_POR_PAGINA}), em ordem de
+     * id. Os outros cartões continuam existindo e recebendo leituras; trocar de página não recria
+     * nada nem perde histórico. EDT.
+     */
+    private void mostrarPagina() {
+        java.util.List<CartaoSensor> todos = new java.util.ArrayList<>(cartoes.values());
+        app.Paginacao p = new app.Paginacao(todos.size(), CARTOES_POR_PAGINA);
+        pagina = p.ajustar(pagina);
+        grade.removeAll();
+        todos.subList(p.inicio(pagina), p.fim(pagina)).forEach(grade::add);
+        paginador.setVisible(p.necessaria());
+        // paginando, a grade reserva as 4 colunas: a última página (com menos cartões) mantém a largura deles
+        grade.colunasMinimas = p.necessaria() ? CARTOES_POR_PAGINA : 1;
+        infoPagina.setText(p.descricao(pagina));
+        paginaAnterior.setEnabled(pagina > 0);
+        proximaPagina.setEnabled(pagina < p.paginas() - 1);
+        trocaVazio.show(areaSensores, todos.isEmpty() ? "vazio" : "grade");
+        grade.revalidate();
+        grade.repaint();
+        revalidate();
+    }
+
+    /** Botões ‹ Anterior / Próxima › (EDT). O gráfico aberto continua aberto. */
+    private void irParaPagina(int nova) {
+        pagina = nova;
+        mostrarPagina();
+    }
+
+    /** Página atual, a partir de 0 (para testes de tela e para a janela). */
+    public int paginaAtual() {
+        return pagina;
     }
 
     // ================================================================== área "Ver gráfico"
@@ -283,8 +376,7 @@ public final class PainelMonitoramento extends JPanel {
 
     /** Gráfico (com o histórico guardado) de um sensor; criado na primeira leitura. */
     private GraficoSensor grafico(String id, TipoSensor tipo) {
-        return graficos.computeIfAbsent(id, k -> new GraficoSensor(
-                regras.getOrDefault(tipo, new RegraExibida(tipo, 0, 100, Severidade.MEDIA)), null));
+        return graficos.computeIfAbsent(id, k -> new GraficoSensor(regraDe(id, tipo), null));
     }
 
     /** Botão "Ver gráfico" do cartão: abre o gráfico deste sensor ou fecha, se já é ele (EDT). */
@@ -477,7 +569,10 @@ public final class PainelMonitoramento extends JPanel {
     private static final class GradeCartoes extends Componentes.PainelRolavel {
         private static final long serialVersionUID = 1L;
         private final GridLayout layout = new GridLayout(0, 4, Medida.ESP_3, Medida.ESP_3);
-        /** 2 linhas de cartões; 1 com o gráfico aberto (para as tabelas de baixo não ficarem espremidas). */
+        /**
+         * Com a paginação (4 por página) a grade costuma ter 1 linha; em janela estreita os 4 podem
+         * quebrar em 2. Com o gráfico aberto, 1 linha (as tabelas de baixo não ficam espremidas).
+         */
         private int maxLinhasVisiveis = 2;
 
         GradeCartoes() {
@@ -485,8 +580,11 @@ public final class PainelMonitoramento extends JPanel {
             setLayout(layout);
         }
 
+        /** Colunas reservadas mesmo com menos cartões (paginando = 4). */
+        private int colunasMinimas = 1;
+
         private int colunas(int largura) {
-            int n = Math.max(1, getComponentCount());
+            int n = Math.max(colunasMinimas, Math.max(1, getComponentCount()));
             int cabem = Math.max(1, (largura + Medida.ESP_3) / (LARGURA_MIN_CARTAO + Medida.ESP_3));
             return Math.min(n, cabem);
         }

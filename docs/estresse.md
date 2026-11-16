@@ -22,6 +22,9 @@ consumidores (`ProcessadorDeLeituras`), `LogArquivo` e H2 em arquivo — encerra
 4. **banco completo:** alertas gerados == alertas gravados == linhas na tabela `alerta`;
 5. **sem deadlock:** tudo dentro de `assertTimeoutPreemptively(60 s)` — se algo travar, o teste falha.
 
+A configuração dos sensores de cada cenário é **gravada no banco** (`ConfiguracaoRepository`) antes
+de abrir o controlador, exatamente como a aba Configurações faz — o controlador a lê de lá.
+
 ## Configuração
 
 | Cenário | Sensores | Intervalo | Consumidores | Fila | Banco |
@@ -29,11 +32,17 @@ consumidores (`ProcessadorDeLeituras`), `LogArquivo` e H2 em arquivo — encerra
 | 32 sensores | 8 por tipo × 4 tipos | 10 ms | 4 | 50 | H2 em arquivo |
 | 40 sensores (carga máxima) | 10 por tipo × 4 tipos | 10 ms | 4 | 50 | H2 em arquivo |
 | Banco lento | 10 por tipo × 4 tipos | 10 ms | 4 | 50 | H2 em arquivo **+ 30 ms por gravação** |
+| Faixas diferentes no mesmo tipo | 8 de temperatura (TEMP-0k aceita 5k a 40+5k °C) + 1 de cada outro tipo | 10 ms | 4 | 50 | H2 em arquivo |
 
-- **Por que não 30 sensores a 5 ms (como no plano)?** A `ConfiguracaoSimulacao` aceita intervalo
-  de 10 a 5000 ms e sensores em múltiplos de 4 (um conjunto por tipo) — regra da interface. Em vez
+- **Por que não 30 sensores a 5 ms (como no plano)?** A configuração dos sensores
+  (`ConfiguracaoSensores`) aceita intervalo de 10 a 5000 ms — regra da interface. Em vez
   de contorná-la ou montar o sistema à mão só no teste, usamos o sistema real com a carga mais
   alta que ele aceita (32 e 40 sensores a 10 ms = ~3.200 e ~4.000 leituras/s).
+- **Por que "faixas diferentes"?** Desde 15/11 cada sensor tem a própria faixa aceita. Um único
+  `AnalisadorDeAnomalias` (imutável) é compartilhado pelos 4 consumidores e escolhe a faixa pelo id
+  da leitura. Além das 5 checagens, o cenário confere, para **cada alerta de temperatura gravado**,
+  que a regra violada cita o limite do próprio sensor e que o valor está fora da faixa dele — se
+  um consumidor usasse a faixa de outro sensor, o teste falharia.
 - **Por que "banco lento"?** Com o banco rápido os 4 consumidores dão conta e a fila não chega a
   encher. O atraso artificial de 30 ms por alerta (sobre o H2 real) simula um servidor de banco
   distante: os consumidores ficam para trás, a fila de 50 enche e os sensores **precisam
@@ -41,39 +50,53 @@ consumidores (`ProcessadorDeLeituras`), `LogArquivo` e H2 em arquivo — encerra
 
 ## Resultados (5 rodadas por cenário, todas aprovadas)
 
-Rodado de novo em 10/11/2026 com a **simulação de eventos discretos** completa
-(`GeradorPorEventosDiscretos`: cada episódio aquece, entra em crise e esfria; ~10 % das leituras
-viram alerta, em rajadas, em vez de ~5 % em picos isolados). Linux, JDK 21 compilando para Java 17.
+Rodado de novo em 15/11/2026, depois da mudança para **faixa por sensor** e configuração gravada
+no banco (Prompts 1–5 do plano de configurações). Linux, JDK 21 compilando para Java 17.
+20 de 20 rodadas aprovadas; nenhuma perdida, nenhuma duplicada, nenhum deadlock.
 
 ### 32 sensores
 
 | Rodada | Produzidas | Processadas | Perdidas | Alertas (no banco) | Esperas por fila cheia | Leituras/s |
 |---|---|---|---|---|---|---|
-| 1/5 | 15.829 | 15.829 | 0 | 1.627 (1.627) | 0 | 3.165 |
-| 2/5 | 15.827 | 15.827 | 0 | 1.605 (1.605) | 0 | 3.165 |
-| 3/5 | 15.822 | 15.822 | 0 | 1.499 (1.499) | 0 | 3.164 |
-| 4/5 | 15.836 | 15.836 | 0 | 1.686 (1.686) | 0 | 3.167 |
-| 5/5 | 15.852 | 15.852 | 0 | 1.614 (1.614) | 0 | 3.170 |
+| 1/5 | 15.788 | 15.788 | 0 | 1.572 (1.572) | 0 | 3.157 |
+| 2/5 | 15.744 | 15.744 | 0 | 1.588 (1.588) | 0 | 3.148 |
+| 3/5 | 15.806 | 15.806 | 0 | 1.573 (1.573) | 0 | 3.161 |
+| 4/5 | 15.778 | 15.778 | 0 | 1.716 (1.716) | 0 | 3.155 |
+| 5/5 | 15.767 | 15.767 | 0 | 1.689 (1.689) | 0 | 3.153 |
 
 ### 40 sensores (carga máxima)
 
 | Rodada | Produzidas | Processadas | Perdidas | Alertas (no banco) | Esperas por fila cheia | Leituras/s |
 |---|---|---|---|---|---|---|
-| 1/5 | 19.710 | 19.710 | 0 | 2.124 (2.124) | 0 | 3.942 |
-| 2/5 | 19.794 | 19.794 | 0 | 2.108 (2.108) | 0 | 3.958 |
-| 3/5 | 19.775 | 19.775 | 0 | 1.836 (1.836) | 0 | 3.955 |
-| 4/5 | 19.763 | 19.763 | 0 | 1.961 (1.961) | 0 | 3.952 |
-| 5/5 | 19.822 | 19.822 | 0 | 1.865 (1.865) | 0 | 3.964 |
+| 1/5 | 19.587 | 19.587 | 0 | 1.906 (1.906) | 0 | 3.917 |
+| 2/5 | 19.678 | 19.678 | 0 | 1.838 (1.838) | 0 | 3.935 |
+| 3/5 | 19.682 | 19.682 | 0 | 2.174 (2.174) | 0 | 3.936 |
+| 4/5 | 19.712 | 19.712 | 0 | 1.915 (1.915) | 0 | 3.942 |
+| 5/5 | 19.743 | 19.743 | 0 | 2.260 (2.260) | 0 | 3.948 |
 
 ### Banco lento — fila cheia, sensores esperando
 
 | Rodada | Produzidas | Processadas | Perdidas | Alertas (no banco) | Esperas por fila cheia | Leituras/s |
 |---|---|---|---|---|---|---|
-| 1/5 | 7.593 | 7.593 | 0 | 635 (635) | 5.579 | 1.518 |
-| 2/5 | 6.713 | 6.713 | 0 | 656 (656) | 5.213 | 1.342 |
-| 3/5 | 6.362 | 6.362 | 0 | 661 (661) | 4.723 | 1.272 |
-| 4/5 | 6.547 | 6.547 | 0 | 651 (651) | 5.338 | 1.309 |
-| 5/5 | 7.388 | 7.388 | 0 | 651 (651) | 5.395 | 1.477 |
+| 1/5 | 6.028 | 6.028 | 0 | 655 (655) | 5.006 | 1.205 |
+| 2/5 | 6.728 | 6.728 | 0 | 656 (656) | 5.460 | 1.345 |
+| 3/5 | 7.297 | 7.297 | 0 | 655 (655) | 5.194 | 1.459 |
+| 4/5 | 5.713 | 5.713 | 0 | 656 (656) | 4.793 | 1.142 |
+| 5/5 | 7.040 | 7.040 | 0 | 654 (654) | 5.595 | 1.408 |
+
+### Faixas diferentes no mesmo tipo (11 sensores)
+
+| Rodada | Produzidas | Processadas | Perdidas | Alertas (no banco) | Esperas por fila cheia | Leituras/s | Alertas de temperatura conferidos |
+|---|---|---|---|---|---|---|---|
+| 1/5 | 5.420 | 5.420 | 0 | 629 (629) | 0 | 1.084 | 478 |
+| 2/5 | 5.423 | 5.423 | 0 | 568 (568) | 0 | 1.084 | 395 |
+| 3/5 | 5.423 | 5.423 | 0 | 601 (601) | 0 | 1.084 | 427 |
+| 4/5 | 5.423 | 5.423 | 0 | 498 (498) | 0 | 1.084 | 366 |
+| 5/5 | 5.423 | 5.423 | 0 | 605 (605) | 0 | 1.084 | 428 |
+
+Todos os alertas de temperatura gravados usaram a faixa do próprio sensor (regra violada com o
+limite certo e valor fora daquela faixa). A vazão menor é só porque são 11 sensores (~1.100
+leituras/s), não 40.
 
 "Esperas por fila cheia" = quantas vezes um sensor chegou com a fila cheia e ficou bloqueado no
 `put()` até um consumidor abrir espaço. Mesmo com milhares de esperas, **nenhuma leitura foi
@@ -84,6 +107,16 @@ regressão: com 4 consumidores e 30 ms por alerta, o banco aguenta no máximo 4 
 alertas/s. Com ~5 % de alertas (gerador antigo) isso limita a vazão a 133 / 0,05 ≈ 2.670
 leituras/s; com ~10 % (gerador novo), a 133 / 0,10 ≈ 1.330 — o que foi medido (1.270 a 1.520).
 Os cenários sem atraso (limitados pelos sensores, não pelo banco) não mudaram.
+
+### Histórico — 10/11/2026 (eventos discretos, faixa única por tipo)
+
+| Cenário | Leituras/s | Perdidas | Esperas por fila cheia |
+|---|---|---|---|
+| 32 sensores | 3.164 – 3.170 | 0 em todas | 0 |
+| 40 sensores | 3.942 – 3.964 | 0 em todas | 0 |
+| Banco lento | 1.272 – 1.518 | 0 em todas | 4.723 – 5.579 |
+
+Os números de 15/11 ficaram no mesmo patamar: a faixa por sensor não custou vazão.
 
 ### Histórico — gerador anterior (picos isolados, ~5 % de alertas)
 

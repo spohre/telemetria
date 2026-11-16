@@ -48,7 +48,7 @@ import static app.ui.tema.Tema.Medida;
  * JANELA PRINCIPAL — Central de Telemetria (1280×800, mín. 1024×680)
  * <pre>
  * ┌ [SENSOR] Central de Telemetria   ● Em execução 0:04:12       [▶ Iniciar] [⏸ Pausar] [■ Parar] ┐
- * ├ [Monitoramento] [Histórico de alertas] [Regras e sensores]                                     ┤
+ * ├ [Monitoramento] [Histórico de alertas] [Configurações]                                         ┤
  * │                         (CardLayout com a aba selecionada)                                    │
  * └ Leituras 12.430 · Fila 3/1000 · Alertas 87 · Threads 6 · Perdidas 0 · ● Banco · Log …         ┘
  * </pre>
@@ -83,14 +83,14 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
     private final JLabel stBanco = Componentes.indicador("Banco conectado", Cor.NORMAL);
     private final PainelMonitoramento painelMonitoramento;
     private final PainelHistorico painelHistorico;
-    private final PainelRegras painelRegras;
+    private final PainelConfiguracoes painelConfiguracoes;
 
     public JanelaPrincipal(ControladorMonitoramento controlador) {
         super("Central de Telemetria");
         this.controlador = controlador;
         this.painelMonitoramento = new PainelMonitoramento(controlador.regras(), null, this::executarAcaoSensor);
         this.painelHistorico = new PainelHistorico(controlador, this::exportarUltimoExtrato);
-        this.painelRegras = new PainelRegras(controlador, this::atualizarEstadosSensores);
+        this.painelConfiguracoes = new PainelConfiguracoes(controlador, this::atualizarEstadosSensores);
 
         setContentPane(criarConteudo());
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
@@ -171,7 +171,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
         abas.setBorder(Componentes.margem(Medida.ESP_3, Medida.ESP_6, Medida.ESP_4, Medida.ESP_6));
         abas.add(painelMonitoramento, "monitoramento");
         abas.add(painelHistorico, "historico");
-        abas.add(painelRegras, "regras");
+        abas.add(painelConfiguracoes, "configuracoes");
 
         JPanel nav = Componentes.transparente(new FlowLayout(FlowLayout.LEFT, Medida.ESP_1, 0));
         nav.setBorder(Componentes.margem(0, Medida.ESP_6 - Medida.ESP_1, 0, Medida.ESP_6));
@@ -179,7 +179,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
         Object[][] defs = {
                 {"Monitoramento", Icone.MONITORAMENTO, "monitoramento"},
                 {"Histórico de alertas", Icone.HISTORICO, "historico"},
-                {"Regras e sensores", Icone.REGRAS, "regras"}};
+                {"Configurações", Icone.REGRAS, "configuracoes"}};
         for (Object[] d : defs) {
             JToggleButton aba = aba((String) d[0], (Icone) d[1]);
             grupo.add(aba);
@@ -408,6 +408,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
     private void atualizarEstadosSensores() {
         FaseSistema fase = controlador.fase();
         java.util.Map<String, app.EstadoSensor> estados = controlador.estadosSensores();
+        painelMonitoramento.definirRegrasDosSensores(controlador.regrasDosSensores());
         painelMonitoramento.atualizarEstadosSensores(controlador.sensoresDisponiveis(), estados,
                 !encerrando && fase != FaseSistema.PAUSADO);
         if (fase == FaseSistema.EXECUTANDO && !encerrando) {
@@ -464,7 +465,7 @@ public final class JanelaPrincipal extends JFrame implements OuvinteTelemetria {
                 Componentes.atualizarIndicador(indicadorFase, "Pausado", Cor.SEV_MEDIA);
             }
         }
-        painelRegras.aoMudarFase(fase);
+        painelConfiguracoes.aoMudarFase(fase);
         painelMonitoramento.aoMudarFase(fase);
         atualizarEstadosSensores();
     }

@@ -27,3 +27,43 @@ CREATE TABLE IF NOT EXISTS alerta (
 -- Consultas mais comuns: por sensor e por período.
 CREATE INDEX IF NOT EXISTS idx_alerta_sensor  ON alerta (sensor_id);
 CREATE INDEX IF NOT EXISTS idx_alerta_momento ON alerta (momento_leitura);
+
+-- ---------------------------------------------------------------------
+-- Configuração dos sensores (aba Configurações)
+-- Gravada inteira numa transação pelo ConfiguracaoRepository: apaga e
+-- regrava as três tabelas. Tabelas vazias = primeira execução (padrão).
+-- ---------------------------------------------------------------------
+
+-- Valores gerais, chave/valor. Hoje: intervalo_ms (intervalo entre leituras).
+CREATE TABLE IF NOT EXISTS config_geral (
+    chave              VARCHAR(50)   PRIMARY KEY,
+    valor              VARCHAR(200)  NOT NULL
+);
+
+-- Faixa padrão de cada tipo: só decide como os sensores NOVOS nascem.
+CREATE TABLE IF NOT EXISTS config_tipo (
+    tipo_sensor        VARCHAR(20)   PRIMARY KEY,
+    minimo             DOUBLE PRECISION NOT NULL,
+    maximo             DOUBLE PRECISION NOT NULL,
+
+    CONSTRAINT ck_config_tipo_tipo
+        CHECK (tipo_sensor IN ('TEMPERATURA', 'VELOCIDADE', 'PRESSAO', 'UMIDADE')),
+    CONSTRAINT ck_config_tipo_faixa
+        CHECK (minimo < maximo)
+);
+
+-- Cada sensor com a sua própria faixa aceita; ordem = ordem de criação.
+CREATE TABLE IF NOT EXISTS config_sensor (
+    sensor_id          VARCHAR(50)   PRIMARY KEY,
+    tipo_sensor        VARCHAR(20)   NOT NULL,
+    minimo             DOUBLE PRECISION NOT NULL,
+    maximo             DOUBLE PRECISION NOT NULL,
+    ordem              INT           NOT NULL,
+
+    CONSTRAINT ck_config_sensor_tipo
+        CHECK (tipo_sensor IN ('TEMPERATURA', 'VELOCIDADE', 'PRESSAO', 'UMIDADE')),
+    CONSTRAINT ck_config_sensor_faixa
+        CHECK (minimo < maximo),
+    CONSTRAINT uq_config_sensor_ordem
+        UNIQUE (ordem)
+);

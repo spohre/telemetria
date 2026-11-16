@@ -50,12 +50,28 @@ public final class CartaoSensor extends JPanel {
     private static final long serialVersionUID = 1L;
 
     private final TipoSensor tipo;
-    private final RegraExibida regra;
+    private RegraExibida regra;
+    private final JLabel faixa = Componentes.rotulo("");
     private final JLabel valor = Componentes.rotulo("—", Fonte.VALOR, Cor.TEXTO);
     private final JLabel rodape;
     private final JPanel areaBadge = Componentes.transparente(new FlowLayout(FlowLayout.RIGHT, 0, 0));
     private final BarraFaixa barra = new BarraFaixa();
     private Color corEstado = Cor.TEXTO_DESATIVADO;
+
+    /** Faixa aceita deste sensor mudou (aba Configurações): texto e barra passam a usar a nova. EDT. */
+    public void definirRegra(RegraExibida nova) {
+        if (nova.equals(regra)) {
+            return;
+        }
+        regra = nova;
+        mostrarFaixa();
+        barra.repaint();
+    }
+
+    private void mostrarFaixa() {
+        faixa.setText("faixa " + FormatoMensagens.decimal(regra.minimo()) + " – "
+                + FormatoMensagens.valorComUnidade(regra.maximo(), tipo));
+    }
 
     /** O que o usuário pediu para fazer com este sensor. */
     public enum Acao { INICIAR, PAUSAR, RETOMAR, DESLIGAR }
@@ -68,7 +84,9 @@ public final class CartaoSensor extends JPanel {
     private EstadoSensor estadoAtual = EstadoSensor.DESLIGADO;
     private boolean ocupado;          // pedido enviado ao controller e ainda sem resposta
 
-    private final JButton verGrafico = Componentes.botaoPequeno("Ver gráfico", Componentes.Estilo.FANTASMA);
+    /** Ação em destaque do cartão: largura total do rodapé, contorno laranja; preenchido = gráfico aberto. */
+    private final JButton verGrafico = Componentes.botaoPequeno("Ver gráfico", Icones.Icone.MONITORAMENTO,
+            Componentes.Estilo.DESTAQUE);
 
     /**
      * @param aoPedirAcao  Iniciar/Pausar/Retomar/Desligar deste sensor (quem executa é o controller)
@@ -97,8 +115,8 @@ public final class CartaoSensor extends JPanel {
         meio.add(valor, BorderLayout.NORTH);
         JPanel linhaFaixa = Componentes.transparente(new BorderLayout(Medida.ESP_2, 0));
         linhaFaixa.add(barra, BorderLayout.CENTER);
-        linhaFaixa.add(Componentes.rotulo("faixa " + FormatoMensagens.decimal(regra.minimo()) + " – "
-                + FormatoMensagens.valorComUnidade(regra.maximo(), tipo)), BorderLayout.EAST);
+        mostrarFaixa();
+        linhaFaixa.add(faixa, BorderLayout.EAST);
         meio.add(linhaFaixa, BorderLayout.CENTER);
 
         rodape = Componentes.rotulo(tipo.nome() + " · aguardando leitura");
@@ -111,9 +129,7 @@ public final class CartaoSensor extends JPanel {
         botoes.add(pausar);
         botoes.add(desligar);
         JPanel controle = Componentes.transparente(new BorderLayout(Medida.ESP_1, 0));
-        controle.add(verGrafico, BorderLayout.WEST);
         controle.add(botoes, BorderLayout.EAST);
-        verGrafico.setBorder(Componentes.margem(0, Medida.ESP_1, 0, Medida.ESP_1));
         verGrafico.setToolTipText("Mostra o histórico deste sensor num gráfico abaixo dos cartões");
         verGrafico.addActionListener(e -> aoVerGrafico.accept(sensorId));
         iniciarOuRetomar.addActionListener(e -> pedir(aoPedirAcao,
@@ -126,15 +142,16 @@ public final class CartaoSensor extends JPanel {
 
         JPanel base = Componentes.transparente(new BorderLayout(0, Medida.ESP_2));
         base.add(rodape, BorderLayout.NORTH);
-        base.add(controle, BorderLayout.SOUTH);
+        base.add(controle, BorderLayout.CENTER);
+        base.add(verGrafico, BorderLayout.SOUTH);           // largura total: a ação que mais se procura
 
         add(base, BorderLayout.SOUTH);
-        setPreferredSize(new Dimension(230, ALTURA));
+        setPreferredSize(new Dimension(215, ALTURA));
         definirEstado(EstadoSensor.DESLIGADO, true);
     }
 
     /** Altura do cartão (leitura + linha de controle); a grade da aba usa o mesmo valor. */
-    static final int ALTURA = 128 + 2 * Medida.ESP_2 + Medida.ALTURA_BOTAO_PEQUENO + Medida.ESP_1;
+    static final int ALTURA = 128 + 3 * Medida.ESP_2 + 2 * Medida.ALTURA_BOTAO_PEQUENO + Medida.ESP_1;
 
     /** Desabilita os botões até o controller responder (evita clique duplo). EDT. */
     private void pedir(BiConsumer<String, Acao> aoPedirAcao, Acao acao) {
@@ -166,9 +183,12 @@ public final class CartaoSensor extends JPanel {
         repaint();
     }
 
-    /** Texto do botão conforme o gráfico DESTE sensor está aberto ou não (EDT). */
+    /** Gráfico DESTE sensor aberto: botão preenchido de laranja, "Fechar gráfico" (EDT). */
     public void marcarGraficoAberto(boolean aberto) {
+        verGrafico.setSelected(aberto);
         verGrafico.setText(aberto ? "Fechar gráfico" : "Ver gráfico");
+        verGrafico.setToolTipText(aberto ? "O gráfico deste sensor está aberto abaixo dos cartões — clique para fechar"
+                : "Mostra o histórico deste sensor num gráfico abaixo dos cartões");
     }
 
     /** O controller respondeu ao último pedido (com sucesso ou erro): botões voltam a valer. EDT. */

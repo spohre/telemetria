@@ -2,6 +2,7 @@ package app;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import domain.ConfiguracaoSensores;
 import domain.LeituraTelemetria;
 import domain.ParametrosDeEpisodios;
 import domain.Severidade;
@@ -36,8 +37,17 @@ class ControladorTelemetriaTest {
     private final ByteArrayOutputStream saida = new ByteArrayOutputStream();
     private ControladorTelemetria controlador;
 
+    private final Dubles.ConfiguracaoFalsa configuracoes = new Dubles.ConfiguracaoFalsa();
+
+    /** Controlador com N sensores por tipo (TEMP-01…, faixas padrão), o intervalo e os consumidores dados. */
+    private ControladorTelemetria novo(int sensoresPorTipo, int intervaloMs, int consumidores) {
+        configuracoes.gravada = ConfiguracaoSensores.padrao().comQuantidadePorTipo(sensoresPorTipo).comIntervalo(intervaloMs);
+        return novo(new ConfiguracaoSimulacao(consumidores));
+    }
+
+    /** Controlador com a configuração que estiver em {@code configuracoes} (vazia = primeira execução). */
     private ControladorTelemetria novo(ConfiguracaoSimulacao cfg) {
-        controlador = new ControladorTelemetria(repositorio, "jdbc:teste", raiz, 1000,
+        controlador = new ControladorTelemetria(repositorio, configuracoes, "jdbc:teste", raiz, 1000,
                 new PrintStream(saida, true, StandardCharsets.UTF_8), Clock.systemDefaultZone());
         controlador.aplicarConfiguracao(cfg);
         controlador.registrarOuvinte(ouvinte);
@@ -68,13 +78,13 @@ class ControladorTelemetriaTest {
 
     @Test
     void configuracaoPadraoTemPeloMenosTresSensores() {
-        ConfiguracaoSimulacao p = ControladorTelemetria.CONFIGURACAO_PADRAO;
-        assertTrue(p.sensoresPorTipo() * TipoSensor.values().length >= 3);
+        novo(ControladorTelemetria.CONFIGURACAO_PADRAO);       // repositório vazio = primeira execução
+        assertTrue(controlador.sensoresDisponiveis().size() >= 3);
     }
 
     @Test
     void cicloCompletoSemPerdaComLogEExtrato() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 10, 2));
+        novo(1, 10, 2);
 
         controlador.iniciar();
         assertEquals(FaseSistema.EXECUTANDO, controlador.fase());
@@ -100,7 +110,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void cadaSensorEConsumidorRodaNaSuaThreadEElasTerminamAoParar() throws Exception {
-        novo(new ConfiguracaoSimulacao(2, 20, 2));
+        novo(2, 20, 2);
         controlador.iniciar();
 
         Set<String> vivas = threadsVivas();
@@ -120,7 +130,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void pausarCongelaAProducaoERetomarContinua() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        novo(1, 10, 1);
         controlador.iniciar();
         esperarAte(() -> controlador.estatisticas().leiturasProduzidas() >= 20, "20 leituras");
 
@@ -138,7 +148,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void pararDuranteAPausaTambemDrenaTudo() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        novo(1, 10, 1);
         controlador.iniciar();
         esperarAte(() -> controlador.estatisticas().leiturasProduzidas() >= 20, "20 leituras");
         controlador.pausar();
@@ -151,7 +161,7 @@ class ControladorTelemetriaTest {
     @Test
     void estatisticasChegamAoOuvinteACadaSegundo() throws Exception {
         List<EstatisticasExecucao> recebidas = new java.util.concurrent.CopyOnWriteArrayList<>();
-        novo(new ConfiguracaoSimulacao(1, 50, 1));
+        novo(1, 50, 1);
         controlador.registrarOuvinte(new Dubles.OuvinteFalso() {
             @Override
             public void aoAtualizarEstatisticas(EstatisticasExecucao e) {
@@ -170,22 +180,22 @@ class ControladorTelemetriaTest {
 
     @Test
     void naoIniciaDuasVezesENaoMudaConfiguracaoEmExecucao() {
-        novo(new ConfiguracaoSimulacao(1, 50, 1));
+        novo(1, 50, 1);
         controlador.iniciar();
 
         assertThrows(IllegalStateException.class, () -> controlador.iniciar());
         assertThrows(IllegalStateException.class,
-                () -> controlador.aplicarConfiguracao(new ConfiguracaoSimulacao(2, 50, 1)));
+                () -> controlador.aplicarConfiguracao(new ConfiguracaoSimulacao(2)));
 
         controlador.parar();
-        controlador.aplicarConfiguracao(new ConfiguracaoSimulacao(2, 50, 1));
-        assertEquals(2, controlador.configuracao().sensoresPorTipo());
+        controlador.aplicarConfiguracao(new ConfiguracaoSimulacao(2));
+        assertEquals(2, controlador.configuracao().consumidores());
         assertThrows(IllegalStateException.class, () -> controlador.parar(), "já parado");
     }
 
     @Test
     void regrasExibidasTrazemFaixaEEscalaDeSeveridade() {
-        novo(ControladorTelemetria.CONFIGURACAO_PADRAO);
+        novo(1, 200, 1);
         List<RegraExibida> regras = controlador.regras();
 
         assertEquals(List.of(TipoSensor.TEMPERATURA, TipoSensor.VELOCIDADE, TipoSensor.PRESSAO, TipoSensor.UMIDADE),
@@ -202,7 +212,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void buscarAlertasConverteOPeriodoEmInstanteEFiltra() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        novo(1, 10, 1);
         controlador.iniciar();
         esperarAte(() -> repositorio.salvos.size() >= 5, "alguns alertas salvos");
         controlador.parar();
@@ -223,7 +233,7 @@ class ControladorTelemetriaTest {
     @Test
     void bancoForaDoArNaoPerdeLeiturasEExtratoMostraAlertasNaoGravados() throws Exception {
         repositorio.fora.set(true);
-        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        novo(1, 10, 1);
         controlador.iniciar();
         esperarAte(() -> controlador.estatisticas().alertasGerados() >= 3, "alguns alertas gerados");
 
@@ -238,7 +248,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void parametrosDeEpisodiosSoMudamComOSistemaParado() {
-        novo(new ConfiguracaoSimulacao(1, 50, 1));
+        novo(1, 50, 1);
         assertEquals(ParametrosDeEpisodios.padrao(), controlador.parametrosEpisodios(), "padrão");
         ParametrosDeEpisodios frequentes = ParametrosDeEpisodios.padrao().comMediaEntreEpisodios(10);
 
@@ -252,7 +262,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void alertasDaExecucaoRealVemEmRajadasPorSensor() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        novo(1, 10, 1);
         controlador.aplicarParametrosEpisodios(ParametrosDeEpisodios.padrao().comMediaEntreEpisodios(20));
         controlador.iniciar();
         esperarAte(() -> ouvinte.processadas.size() >= 1200, "leituras suficientes");
@@ -279,7 +289,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void consoleAnunciaASimulacaoPorEventosDiscretos() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 200, 1));
+        novo(1, 200, 1);
         controlador.iniciar();
         controlador.parar();
         String console = saida.toString(StandardCharsets.UTF_8);
@@ -289,7 +299,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void consoleMostraInicioAlertasEEncerramentoMasNaoLeiturasNormais() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        novo(1, 10, 1);
         controlador.iniciar();
         esperarAte(() -> repositorio.salvos.size() >= 3, "alguns alertas");
         controlador.parar();
@@ -305,7 +315,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void exportarExtratoGravaArquivoUtf8() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 20, 1));
+        novo(1, 20, 1);
         controlador.iniciar();
         ExtratoExecucao e = controlador.parar();
 
@@ -324,7 +334,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void desligarUmSensorParaSoEleEOsOutrosContinuam() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        novo(1, 10, 1);
         controlador.iniciar();
         esperarAte(() -> processadasDo("TEMP-01") >= 5, "TEMP-01 produzir");
 
@@ -343,7 +353,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void religarUmSensorContinuaASequenciaSemRepetirNemPerder() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        novo(1, 10, 1);
         controlador.iniciar();
         esperarAte(() -> processadasDo("PRES-01") >= 5, "PRES-01 produzir");
         controlador.desligarSensor("PRES-01");
@@ -366,7 +376,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void pausarUmSensorCongelaSoEleERetomarContinua() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        novo(1, 10, 1);
         controlador.iniciar();
         esperarAte(() -> processadasDo("UMID-01") >= 3, "UMID-01 produzir");
 
@@ -386,7 +396,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void sensoresFicamDisponiveisEDesligadosAntesDeQualquerExecucao() {
-        novo(new ConfiguracaoSimulacao(2, 50, 1));
+        novo(2, 50, 1);
         assertEquals(List.of("PRES-01", "PRES-02", "TEMP-01", "TEMP-02", "UMID-01", "UMID-02", "VEL-01", "VEL-02"),
                 List.copyOf(controlador.sensoresDisponiveis().keySet()), "um por tipo × 2, em ordem de id");
         assertEquals(TipoSensor.VELOCIDADE, controlador.sensoresDisponiveis().get("VEL-02"));
@@ -397,7 +407,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void ligarUmSensorComTudoParadoIniciaOSistemaSoComEle() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        novo(1, 10, 1);
 
         controlador.iniciarSensor("VEL-01");
 
@@ -420,7 +430,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void controleIndividualRespeitaPausaGeralEIdValido() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 50, 1));
+        novo(1, 50, 1);
         assertThrows(IllegalStateException.class, () -> controlador.pausarSensor("TEMP-01"), "parado: nada a pausar");
 
         controlador.iniciar();
@@ -439,7 +449,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void desligarOUltimoSensorLigadoEquivaleAParar() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 10, 2));
+        novo(1, 10, 2);
         controlador.iniciar();
         esperarAte(() -> controlador.estatisticas().leiturasProcessadas() >= 40, "40 leituras");
         for (String id : List.of("PRES-01", "TEMP-01", "UMID-01")) {
@@ -463,7 +473,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void sensorPausadoContaComoLigadoAoDesligarOsOutros() throws Exception {
-        novo(new ConfiguracaoSimulacao(1, 50, 1));
+        novo(1, 50, 1);
         controlador.iniciarSensor("TEMP-01");                // sistema sobe só com TEMP-01
         controlador.iniciarSensor("VEL-01");
         controlador.pausarSensor("VEL-01");
@@ -489,7 +499,7 @@ class ControladorTelemetriaTest {
 
     @Test
     void ultimaExecucaoSemLogEVazia() {
-        novo(new ConfiguracaoSimulacao(1, 200, 1));
+        novo(1, 200, 1);
         assertTrue(controlador.ultimaExecucao().vazio());
     }
 
@@ -498,7 +508,7 @@ class ControladorTelemetriaTest {
         Instant antiga = Instant.now().minus(Duration.ofHours(2)).truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
         escreverLog(antiga, antiga.plusSeconds(1));         // execução anterior, já no log
 
-        novo(new ConfiguracaoSimulacao(1, 10, 1));
+        novo(1, 10, 1);
         controlador.iniciar();
         esperarAte(() -> controlador.estatisticas().leiturasProcessadas() >= 40, "40 leituras processadas");
         ExtratoExecucao e = controlador.parar();
@@ -517,11 +527,232 @@ class ControladorTelemetriaTest {
         Instant recente = agora.minus(Duration.ofMinutes(10));
         escreverLog(antiga, antiga.plusSeconds(1), recente, recente.plusSeconds(1), recente.plusSeconds(2));
 
-        novo(new ConfiguracaoSimulacao(1, 200, 1));
+        novo(1, 200, 1);
         HistoricoExecucao h = controlador.ultimaExecucao();
 
         assertEquals(3, h.leituras().size());
         assertEquals(recente, h.inicio());
         assertEquals(recente.plusSeconds(2), h.fim());
+    }
+
+    // ================================================================== configuração dos sensores
+
+    @Test
+    void primeiraExecucaoUsaOPadraoEGravaNoRepositorio() {
+        novo(ControladorTelemetria.CONFIGURACAO_PADRAO);          // repositório vazio
+        assertEquals(ConfiguracaoSensores.padrao(), controlador.configuracaoSensores());
+        assertEquals(ConfiguracaoSensores.padrao(), configuracoes.gravada, "o padrão foi gravado");
+        assertEquals(List.of("PRES-01", "TEMP-01", "UMID-01", "VEL-01"),
+                List.copyOf(controlador.sensoresDisponiveis().keySet()));
+    }
+
+    @Test
+    void bancoForaDoArAoAbrirUsaOPadraoSoEmMemoriaEAvisa() {
+        configuracoes.fora.set(true);
+        novo(ControladorTelemetria.CONFIGURACAO_PADRAO);
+        assertEquals(ConfiguracaoSensores.padrao(), controlador.configuracaoSensores());
+        assertTrue(saida.toString(StandardCharsets.UTF_8).contains("AVISO"), "avisou no console");
+    }
+
+    @Test
+    void novoControladorComOMesmoRepositorioRecuperaTudo() {
+        novo(1, 50, 1);
+        controlador.adicionarSensor(TipoSensor.TEMPERATURA);
+        controlador.alterarFaixaSensor("TEMP-02", 10, 60);
+        controlador.alterarFaixaPadrao(TipoSensor.PRESSAO, 2, 6);
+        controlador.alterarIntervalo(300);
+        ConfiguracaoSensores antes = controlador.configuracaoSensores();
+
+        ControladorTelemetria reaberto = new ControladorTelemetria(repositorio, configuracoes, "jdbc:teste", raiz,
+                1000, null, Clock.systemDefaultZone());
+
+        assertEquals(antes, reaberto.configuracaoSensores());
+        assertEquals(300, reaberto.configuracaoSensores().intervaloMs());
+        assertTrue(reaberto.sensoresDisponiveis().containsKey("TEMP-02"));
+    }
+
+    @Test
+    void sensorAdicionadoComOSistemaParadoApareceERodaAoIniciar() throws InterruptedException {
+        novo(1, 10, 1);
+        ConfiguracaoSensores nova = controlador.adicionarSensor(TipoSensor.VELOCIDADE);
+
+        assertEquals(nova, controlador.configuracaoSensores());
+        assertEquals(nova, configuracoes.gravada, "gravado no repositório");
+        assertEquals(TipoSensor.VELOCIDADE, controlador.sensoresDisponiveis().get("VEL-02"));
+        assertEquals(EstadoSensor.DESLIGADO, controlador.estadosSensores().get("VEL-02"));
+
+        controlador.iniciar();
+        esperarAte(() -> processadasDo("VEL-02") >= 3, "VEL-02 produzir");
+        assertEquals(EstadoSensor.EXECUTANDO, controlador.estadosSensores().get("VEL-02"));
+        ExtratoExecucao extrato = controlador.parar();
+        assertEquals(5, extrato.sensores().sensores().size());
+    }
+
+    @Test
+    void sensorAdicionadoPodeSerLigadoSozinhoComTudoParado() throws InterruptedException {
+        novo(1, 10, 1);
+        controlador.adicionarSensor(TipoSensor.UMIDADE);
+        controlador.iniciarSensor("UMID-02");
+        esperarAte(() -> processadasDo("UMID-02") >= 3, "UMID-02 produzir");
+        assertEquals(EstadoSensor.DESLIGADO, controlador.estadosSensores().get("UMID-01"));
+    }
+
+    @Test
+    void alterarConfiguracaoDosSensoresEmExecucaoOuPausadoEhRecusado() {
+        novo(1, 50, 1);
+        controlador.iniciar();
+        ConfiguracaoSensores antes = controlador.configuracaoSensores();
+        long gravacoes = configuracoes.gravacoes.get();
+
+        assertThrows(IllegalStateException.class, () -> controlador.adicionarSensor(TipoSensor.TEMPERATURA));
+        assertThrows(IllegalStateException.class, () -> controlador.alterarFaixaSensor("TEMP-01", 1, 2));
+        assertThrows(IllegalStateException.class, () -> controlador.alterarFaixaPadrao(TipoSensor.PRESSAO, 1, 2));
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> controlador.alterarIntervalo(300));
+        assertTrue(e.getMessage().contains("Pare o sistema"), e.getMessage());
+        controlador.pausar();
+        assertThrows(IllegalStateException.class, () -> controlador.adicionarSensor(TipoSensor.TEMPERATURA));
+
+        assertEquals(antes, controlador.configuracaoSensores());
+        assertEquals(gravacoes, configuracoes.gravacoes.get(), "nada gravado");
+        controlador.retomar();
+    }
+
+    @Test
+    void valorInvalidoEhRecusadoComMensagemENaoGrava() {
+        novo(1, 50, 1);
+        long gravacoes = configuracoes.gravacoes.get();
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> controlador.alterarFaixaSensor("TEMP-01", 50, 10));
+        assertTrue(e.getMessage().contains("menor"), e.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> controlador.alterarFaixaSensor("XYZ-01", 0, 10));
+        assertThrows(IllegalArgumentException.class, () -> controlador.alterarIntervalo(5));
+        assertEquals(gravacoes, configuracoes.gravacoes.get());
+    }
+
+    @Test
+    void bancoQueNaoGravaNaoAlteraAConfiguracaoEExplicaOQueFazer() {
+        novo(1, 50, 1);
+        ConfiguracaoSensores antes = controlador.configuracaoSensores();
+        configuracoes.fora.set(true);
+
+        FalhaDeOperacao f = assertThrows(FalhaDeOperacao.class, () -> controlador.adicionarSensor(TipoSensor.PRESSAO));
+        assertFalse(f.oQueAconteceu().isBlank());
+        assertFalse(f.oQueFazer().isBlank());
+        assertNotNull(f.getCause(), "causa técnica vai junto");
+        assertThrows(FalhaDeOperacao.class, () -> controlador.alterarIntervalo(300));
+
+        assertEquals(antes, controlador.configuracaoSensores(), "configuração em memória não mudou");
+        assertFalse(controlador.sensoresDisponiveis().containsKey("PRES-02"));
+    }
+
+    @Test
+    void faixaPropriaDoSensorDecideOsAlertasNoSistemaReal() throws InterruptedException {
+        novo(1, 10, 1);
+        controlador.adicionarSensor(TipoSensor.TEMPERATURA);
+        controlador.alterarFaixaSensor("TEMP-02", 10, 60);
+        controlador.aplicarParametrosEpisodios(ParametrosDeEpisodios.padrao().comMediaEntreEpisodios(5));
+
+        controlador.iniciar();
+        esperarAte(() -> alertasDo("TEMP-02").size() >= 5 && alertasDo("TEMP-01").size() >= 5,
+                "alertas dos dois sensores de temperatura");
+        controlador.parar();
+
+        for (var a : alertasDo("TEMP-02")) {
+            assertTrue(Set.of("acima do limite 60,0 °C", "abaixo do limite 10,0 °C").contains(a.regraViolada()),
+                    "TEMP-02 usa a própria faixa: " + a.regraViolada());
+            assertTrue(a.valorLido() > 60 || a.valorLido() < 10, "valor fora de 10–60: " + a.valorLido());
+        }
+        for (var a : alertasDo("TEMP-01")) {
+            assertTrue(Set.of("acima do limite 80,0 °C", "abaixo do limite 0,0 °C").contains(a.regraViolada()),
+                    "TEMP-01 continua com a faixa padrão: " + a.regraViolada());
+        }
+    }
+
+    private List<domain.Alerta> alertasDo(String sensorId) {
+        return repositorio.salvos.stream().filter(a -> a.sensorId().equals(sensorId)).toList();
+    }
+
+    @Test
+    void regrasDosSensoresTrazemAFaixaDeCadaUmERegrasTrazemOPadrao() {
+        novo(1, 50, 1);
+        controlador.adicionarSensor(TipoSensor.TEMPERATURA);
+        controlador.alterarFaixaSensor("TEMP-02", 10, 60);
+        controlador.alterarFaixaPadrao(TipoSensor.TEMPERATURA, 5, 70);
+
+        RegraExibida t2 = controlador.regrasDosSensores().get("TEMP-02");
+        assertEquals(10.0, t2.minimo());
+        assertEquals(60.0, t2.maximo());
+        assertEquals(List.of(2.5, 7.5, 15.0), t2.escala().stream().limit(3).map(d -> d.desvioMaximo()).toList());
+        assertEquals(80.0, controlador.regrasDosSensores().get("TEMP-01").maximo(), "TEMP-01 não muda com o padrão");
+        assertEquals(70.0, controlador.regras().get(0).maximo(), "regras() = faixa padrão do tipo");
+    }
+
+    @Test
+    void consoleEExtratoMostramAFaixaDeCadaSensor() throws InterruptedException {
+        novo(1, 10, 1);
+        controlador.adicionarSensor(TipoSensor.TEMPERATURA);
+        controlador.alterarFaixaSensor("TEMP-02", 10, 60);
+        controlador.iniciar();
+        esperarAte(() -> processadasDo("TEMP-02") >= 2, "TEMP-02 produzir");
+        ExtratoExecucao extrato = controlador.parar();
+
+        String console = saida.toString(StandardCharsets.UTF_8);
+        assertTrue(console.contains("Faixas aceitas: "), console);
+        assertTrue(console.contains("TEMP-02 10,0 a 60,0 °C (propria)"), console);
+        String texto = FormatoMensagens.extrato(extrato);
+        assertTrue(texto.contains("FAIXAS ACEITAS"), texto);
+        assertTrue(texto.contains("5 sensores"), texto);
+    }
+
+    @Test
+    void usarSemGravarValeSoParaAProximaExecucaoENaoGrava() {
+        novo(1, 50, 1);
+        ConfiguracaoSensores gravada = configuracoes.gravada;
+        controlador.usarSemGravar(gravada.comQuantidadePorTipo(2).comIntervalo(20));
+
+        assertEquals(8, controlador.sensoresDisponiveis().size());
+        assertEquals(gravada, configuracoes.gravada, "repositório intacto");
+        assertEquals(4, new ControladorTelemetria(repositorio, configuracoes, "jdbc:teste", raiz, 1000, null,
+                Clock.systemDefaultZone()).sensoresDisponiveis().size(), "ao reabrir volta a gravada");
+    }
+
+    @Test
+    void removerSensorComOSistemaParadoTiraDaListaEGrava() throws InterruptedException {
+        novo(1, 10, 1);
+        controlador.adicionarSensor(TipoSensor.TEMPERATURA);
+        ConfiguracaoSensores nova = controlador.removerSensor("VEL-01");
+
+        assertFalse(controlador.sensoresDisponiveis().containsKey("VEL-01"));
+        assertTrue(controlador.regrasDosSensores().containsKey("TEMP-02"));
+        assertEquals(nova, configuracoes.gravada, "gravado no repositório");
+        assertTrue(saida.toString(StandardCharsets.UTF_8).contains("Sensor VEL-01 removido"));
+
+        controlador.iniciar();                      // a execução não cria o sensor removido
+        esperarAte(() -> processadasDo("TEMP-02") >= 2, "TEMP-02 produzir");
+        ExtratoExecucao extrato = controlador.parar();
+        assertEquals(4, extrato.sensores().sensores().size());
+        assertEquals(0, processadasDo("VEL-01"));
+        assertThrows(IllegalArgumentException.class, () -> controlador.iniciarSensor("VEL-01"));
+    }
+
+    @Test
+    void removerEhRecusadoEmExecucaoNoUltimoSensorESemBanco() {
+        novo(1, 50, 1);
+        controlador.iniciar();
+        assertThrows(IllegalStateException.class, () -> controlador.removerSensor("TEMP-01"));
+        controlador.parar();
+
+        controlador.removerSensor("VEL-01");
+        controlador.removerSensor("PRES-01");
+        controlador.removerSensor("UMID-01");
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> controlador.removerSensor("TEMP-01"));
+        assertTrue(e.getMessage().contains("pelo menos um sensor"), e.getMessage());
+
+        controlador.adicionarSensor(TipoSensor.PRESSAO);
+        configuracoes.fora.set(true);
+        ConfiguracaoSensores antes = controlador.configuracaoSensores();
+        assertThrows(FalhaDeOperacao.class, () -> controlador.removerSensor("PRES-01"));
+        assertEquals(antes, controlador.configuracaoSensores(), "banco sem gravar: nada mudou");
     }
 }

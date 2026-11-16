@@ -1,62 +1,98 @@
-17:12:10.056  INFO    [banco]       Conectado: jdbc:h2:./data/telemetria;DB_CLOSE_DELAY=-1
-17:12:10.085  INFO    [sistema]     4 sensores e 1 consumidor(es) iniciados (intervalo 200 ms)
-17:12:10.090  INFO    [sistema]     Simulação por eventos discretos: ~10,0 s normais (50 leituras) em média entre episódios; cada episódio aquece 1,2 a 2,4 s, fica em crise 1,2 a 2,8 s (passa do limite em 80 % deles) e esfria 1,2 a 2,4 s
-17:12:18.704  ALERTA  [UMID-01]     19,8 %: abaixo do limite 20,0 % | BAIXA | salvo #1
-17:12:18.904  ALERTA  [UMID-01]     19,6 %: abaixo do limite 20,0 % | BAIXA | salvo #2
-17:12:19.104  ALERTA  [UMID-01]     19,5 %: abaixo do limite 20,0 % | BAIXA | salvo #3
-17:12:19.304  ALERTA  [UMID-01]     19,3 %: abaixo do limite 20,0 % | BAIXA | salvo #4
-17:12:19.504  ALERTA  [UMID-01]     18,6 %: abaixo do limite 20,0 % | BAIXA | salvo #5
-17:12:19.705  ALERTA  [UMID-01]     18,9 %: abaixo do limite 20,0 % | BAIXA | salvo #6
-17:12:19.905  ALERTA  [UMID-01]     19,3 %: abaixo do limite 20,0 % | BAIXA | salvo #7
-17:12:20.105  ALERTA  [UMID-01]     19,5 %: abaixo do limite 20,0 % | BAIXA | salvo #8
-17:12:20.108  ALERTA  [PRES-01]     8,1 bar: acima do limite 8,0 bar | BAIXA | salvo #9
-17:12:20.305  ALERTA  [UMID-01]     19,6 %: abaixo do limite 20,0 % | BAIXA | salvo #10
-17:12:20.308  ALERTA  [PRES-01]     8,1 bar: acima do limite 8,0 bar | BAIXA | salvo #11
-17:12:20.506  ALERTA  [UMID-01]     19,8 %: abaixo do limite 20,0 % | BAIXA | salvo #12
-17:12:20.509  ALERTA  [PRES-01]     8,1 bar: acima do limite 8,0 bar | BAIXA | salvo #13
-17:12:20.709  ALERTA  [PRES-01]     8,1 bar: acima do limite 8,0 bar | BAIXA | salvo #14
-17:12:20.909  ALERTA  [PRES-01]     8,2 bar: acima do limite 8,0 bar | BAIXA | salvo #15
-17:12:21.109  ALERTA  [PRES-01]     8,1 bar: acima do limite 8,0 bar | BAIXA | salvo #16
-17:12:21.309  ALERTA  [PRES-01]     8,2 bar: acima do limite 8,0 bar | BAIXA | salvo #17
-17:12:21.509  ALERTA  [PRES-01]     8,2 bar: acima do limite 8,0 bar | BAIXA | salvo #18
-17:12:21.709  ALERTA  [PRES-01]     8,2 bar: acima do limite 8,0 bar | BAIXA | salvo #19
-17:12:21.910  ALERTA  [PRES-01]     8,1 bar: acima do limite 8,0 bar | BAIXA | salvo #20
-17:12:22.110  ALERTA  [PRES-01]     8,1 bar: acima do limite 8,0 bar | BAIXA | salvo #21
-17:12:22.310  ALERTA  [PRES-01]     8,1 bar: acima do limite 8,0 bar | BAIXA | salvo #22
-17:12:22.508  ALERTA  [TEMP-01]     -4,8 °C: abaixo do limite 0,0 °C | MEDIA | salvo #23
-17:12:22.511  ALERTA  [PRES-01]     8,1 bar: acima do limite 8,0 bar | BAIXA | salvo #24
-17:12:22.708  ALERTA  [TEMP-01]     -9,7 °C: abaixo do limite 0,0 °C | MEDIA | salvo #25
-17:12:22.909  ALERTA  [TEMP-01]     -14,5 °C: abaixo do limite 0,0 °C | ALTA | salvo #26
-17:12:23.109  ALERTA  [TEMP-01]     -15,5 °C: abaixo do limite 0,0 °C | ALTA | salvo #27
-17:12:23.309  ALERTA  [TEMP-01]     -19,0 °C: abaixo do limite 0,0 °C | ALTA | salvo #28
-17:12:23.509  ALERTA  [TEMP-01]     -14,5 °C: abaixo do limite 0,0 °C | ALTA | salvo #29
-17:12:23.710  ALERTA  [TEMP-01]     -9,7 °C: abaixo do limite 0,0 °C | MEDIA | salvo #30
-17:12:23.910  ALERTA  [TEMP-01]     -4,8 °C: abaixo do limite 0,0 °C | MEDIA | salvo #31
-17:12:29.938  ALERTA  [VEL-01]      127,3 km/h: acima do limite 120,0 km/h | MEDIA | salvo #32
-17:12:30.138  ALERTA  [VEL-01]      134,6 km/h: acima do limite 120,0 km/h | MEDIA | salvo #33
-17:12:30.338  ALERTA  [VEL-01]      142,0 km/h: acima do limite 120,0 km/h | ALTA | salvo #34
-17:12:30.538  ALERTA  [VEL-01]      151,4 km/h: acima do limite 120,0 km/h | ALTA | salvo #35
-17:12:30.739  ALERTA  [VEL-01]      142,0 km/h: acima do limite 120,0 km/h | ALTA | salvo #36
-17:12:30.939  ALERTA  [VEL-01]      134,6 km/h: acima do limite 120,0 km/h | MEDIA | salvo #37
-17:12:31.117  ALERTA  [PRES-01]     0,9 bar: abaixo do limite 1,0 bar | BAIXA | salvo #38
-17:12:31.139  ALERTA  [VEL-01]      127,3 km/h: acima do limite 120,0 km/h | MEDIA | salvo #39
-17:12:31.318  ALERTA  [PRES-01]     0,9 bar: abaixo do limite 1,0 bar | BAIXA | salvo #40
-17:12:31.518  ALERTA  [PRES-01]     0,9 bar: abaixo do limite 1,0 bar | BAIXA | salvo #41
-17:12:31.718  ALERTA  [PRES-01]     0,9 bar: abaixo do limite 1,0 bar | BAIXA | salvo #42
-17:12:31.918  ALERTA  [PRES-01]     0,8 bar: abaixo do limite 1,0 bar | BAIXA | salvo #43
-17:12:32.118  ALERTA  [PRES-01]     0,9 bar: abaixo do limite 1,0 bar | BAIXA | salvo #44
-17:12:32.321  ALERTA  [PRES-01]     0,8 bar: abaixo do limite 1,0 bar | BAIXA | salvo #45
-17:12:32.521  ALERTA  [PRES-01]     0,9 bar: abaixo do limite 1,0 bar | BAIXA | salvo #46
-17:12:32.721  ALERTA  [PRES-01]     0,8 bar: abaixo do limite 1,0 bar | BAIXA | salvo #47
-17:12:32.921  ALERTA  [PRES-01]     0,9 bar: abaixo do limite 1,0 bar | BAIXA | salvo #48
-17:12:33.121  ALERTA  [PRES-01]     0,9 bar: abaixo do limite 1,0 bar | BAIXA | salvo #49
-17:12:33.321  ALERTA  [PRES-01]     0,9 bar: abaixo do limite 1,0 bar | BAIXA | salvo #50
-17:12:33.521  ALERTA  [PRES-01]     0,9 bar: abaixo do limite 1,0 bar | BAIXA | salvo #51
-17:12:40.108  INFO    [sistema]     Encerrado: 600 leituras, 0 perdidas, 51 alertas. Extrato: data/extrato-20261110-171240.txt
+22:03:57.779  INFO    [banco]       Conectado: jdbc:h2:./data/telemetria;DB_CLOSE_DELAY=-1
+22:03:57.831  INFO    [sistema]     4 sensores e 1 consumidor(es) iniciados (intervalo 200 ms)
+22:03:57.850  INFO    [sistema]     Faixas aceitas: TEMP-01 0,0 a 80,0 °C | VEL-01 0,0 a 120,0 km/h | PRES-01 1,0 a 8,0 bar | UMID-01 20,0 a 90,0 %
+22:03:57.854  INFO    [sistema]     Simulação por eventos discretos: ~10,0 s normais (50 leituras) em média entre episódios; cada episódio aquece 1,2 a 2,4 s, fica em crise 1,2 a 2,8 s (passa do limite em 80 % deles) e esfria 1,2 a 2,4 s
+22:04:01.476  ALERTA  [UMID-01]     90,2 %: acima do limite 90,0 % | BAIXA | salvo #1
+22:04:01.676  ALERTA  [UMID-01]     90,5 %: acima do limite 90,0 % | BAIXA | salvo #2
+22:04:01.876  ALERTA  [UMID-01]     90,7 %: acima do limite 90,0 % | BAIXA | salvo #3
+22:04:02.076  ALERTA  [UMID-01]     91,0 %: acima do limite 90,0 % | BAIXA | salvo #4
+22:04:02.277  ALERTA  [UMID-01]     92,8 %: acima do limite 90,0 % | BAIXA | salvo #5
+22:04:02.477  ALERTA  [UMID-01]     91,4 %: acima do limite 90,0 % | BAIXA | salvo #6
+22:04:02.677  ALERTA  [UMID-01]     91,1 %: acima do limite 90,0 % | BAIXA | salvo #7
+22:04:02.877  ALERTA  [UMID-01]     91,8 %: acima do limite 90,0 % | BAIXA | salvo #8
+22:04:03.068  ALERTA  [PRES-01]     8,2 bar: acima do limite 8,0 bar | BAIXA | salvo #9
+22:04:03.078  ALERTA  [UMID-01]     91,0 %: acima do limite 90,0 % | BAIXA | salvo #10
+22:04:03.268  ALERTA  [PRES-01]     8,4 bar: acima do limite 8,0 bar | MEDIA | salvo #11
+22:04:03.278  ALERTA  [UMID-01]     90,7 %: acima do limite 90,0 % | BAIXA | salvo #12
+22:04:03.468  ALERTA  [PRES-01]     8,6 bar: acima do limite 8,0 bar | MEDIA | salvo #13
+22:04:03.478  ALERTA  [UMID-01]     90,5 %: acima do limite 90,0 % | BAIXA | salvo #14
+22:04:03.667  ALERTA  [VEL-01]      122,2 km/h: acima do limite 120,0 km/h | BAIXA | salvo #15
+22:04:03.670  ALERTA  [PRES-01]     8,8 bar: acima do limite 8,0 bar | MEDIA | salvo #16
+22:04:03.678  ALERTA  [UMID-01]     90,2 %: acima do limite 90,0 % | BAIXA | salvo #17
+22:04:03.867  ALERTA  [VEL-01]      124,5 km/h: acima do limite 120,0 km/h | BAIXA | salvo #18
+22:04:03.870  ALERTA  [PRES-01]     8,6 bar: acima do limite 8,0 bar | MEDIA | salvo #19
+22:04:04.067  ALERTA  [VEL-01]      126,7 km/h: acima do limite 120,0 km/h | MEDIA | salvo #20
+22:04:04.070  ALERTA  [PRES-01]     8,4 bar: acima do limite 8,0 bar | MEDIA | salvo #21
+22:04:04.268  ALERTA  [VEL-01]      128,9 km/h: acima do limite 120,0 km/h | MEDIA | salvo #22
+22:04:04.271  ALERTA  [PRES-01]     8,2 bar: acima do limite 8,0 bar | BAIXA | salvo #23
+22:04:04.468  ALERTA  [VEL-01]      130,0 km/h: acima do limite 120,0 km/h | MEDIA | salvo #24
+22:04:04.668  ALERTA  [VEL-01]      132,2 km/h: acima do limite 120,0 km/h | MEDIA | salvo #25
+22:04:04.868  ALERTA  [VEL-01]      128,9 km/h: acima do limite 120,0 km/h | MEDIA | salvo #26
+22:04:05.068  ALERTA  [VEL-01]      126,7 km/h: acima do limite 120,0 km/h | MEDIA | salvo #27
+22:04:05.269  ALERTA  [VEL-01]      124,5 km/h: acima do limite 120,0 km/h | BAIXA | salvo #28
+22:04:05.469  ALERTA  [VEL-01]      122,2 km/h: acima do limite 120,0 km/h | BAIXA | salvo #29
+22:04:08.288  ALERTA  [UMID-01]     90,2 %: acima do limite 90,0 % | BAIXA | salvo #30
+22:04:08.489  ALERTA  [UMID-01]     90,3 %: acima do limite 90,0 % | BAIXA | salvo #31
+22:04:08.689  ALERTA  [UMID-01]     90,5 %: acima do limite 90,0 % | BAIXA | salvo #32
+22:04:08.889  ALERTA  [UMID-01]     90,7 %: acima do limite 90,0 % | BAIXA | salvo #33
+22:04:09.090  ALERTA  [UMID-01]     90,9 %: acima do limite 90,0 % | BAIXA | salvo #34
+22:04:09.290  ALERTA  [UMID-01]     92,7 %: acima do limite 90,0 % | BAIXA | salvo #35
+22:04:09.490  ALERTA  [UMID-01]     90,9 %: acima do limite 90,0 % | BAIXA | salvo #36
+22:04:09.690  ALERTA  [UMID-01]     92,7 %: acima do limite 90,0 % | BAIXA | salvo #37
+22:04:09.890  ALERTA  [UMID-01]     91,3 %: acima do limite 90,0 % | BAIXA | salvo #38
+22:04:10.091  ALERTA  [UMID-01]     90,9 %: acima do limite 90,0 % | BAIXA | salvo #39
+22:04:10.291  ALERTA  [UMID-01]     90,7 %: acima do limite 90,0 % | BAIXA | salvo #40
+22:04:10.491  ALERTA  [UMID-01]     90,5 %: acima do limite 90,0 % | BAIXA | salvo #41
+22:04:10.691  ALERTA  [UMID-01]     90,3 %: acima do limite 90,0 % | BAIXA | salvo #42
+22:04:10.892  ALERTA  [UMID-01]     90,2 %: acima do limite 90,0 % | BAIXA | salvo #43
+22:04:11.279  ALERTA  [TEMP-01]     82,1 °C: acima do limite 80,0 °C | BAIXA | salvo #44
+22:04:11.481  ALERTA  [TEMP-01]     84,3 °C: acima do limite 80,0 °C | MEDIA | salvo #45
+22:04:11.681  ALERTA  [TEMP-01]     86,4 °C: acima do limite 80,0 °C | MEDIA | salvo #46
+22:04:11.881  ALERTA  [TEMP-01]     86,2 °C: acima do limite 80,0 °C | MEDIA | salvo #47
+22:04:12.081  ALERTA  [TEMP-01]     87,0 °C: acima do limite 80,0 °C | MEDIA | salvo #48
+22:04:12.282  ALERTA  [TEMP-01]     87,1 °C: acima do limite 80,0 °C | MEDIA | salvo #49
+22:04:12.482  ALERTA  [TEMP-01]     86,4 °C: acima do limite 80,0 °C | MEDIA | salvo #50
+22:04:12.682  ALERTA  [TEMP-01]     84,3 °C: acima do limite 80,0 °C | MEDIA | salvo #51
+22:04:12.882  ALERTA  [TEMP-01]     82,1 °C: acima do limite 80,0 °C | BAIXA | salvo #52
+22:04:17.087  ALERTA  [TEMP-01]     -0,4 °C: abaixo do limite 0,0 °C | BAIXA | salvo #53
+22:04:17.287  ALERTA  [TEMP-01]     -0,8 °C: abaixo do limite 0,0 °C | BAIXA | salvo #54
+22:04:17.488  ALERTA  [TEMP-01]     -1,2 °C: abaixo do limite 0,0 °C | BAIXA | salvo #55
+22:04:17.688  ALERTA  [TEMP-01]     -2,0 °C: abaixo do limite 0,0 °C | BAIXA | salvo #56
+22:04:17.888  ALERTA  [TEMP-01]     -1,2 °C: abaixo do limite 0,0 °C | BAIXA | salvo #57
+22:04:18.088  ALERTA  [TEMP-01]     -0,8 °C: abaixo do limite 0,0 °C | BAIXA | salvo #58
+22:04:18.289  ALERTA  [TEMP-01]     -0,4 °C: abaixo do limite 0,0 °C | BAIXA | salvo #59
+22:04:22.104  ALERTA  [UMID-01]     90,4 %: acima do limite 90,0 % | BAIXA | salvo #60
+22:04:22.304  ALERTA  [UMID-01]     90,9 %: acima do limite 90,0 % | BAIXA | salvo #61
+22:04:22.504  ALERTA  [UMID-01]     91,3 %: acima do limite 90,0 % | BAIXA | salvo #62
+22:04:22.704  ALERTA  [UMID-01]     91,7 %: acima do limite 90,0 % | BAIXA | salvo #63
+22:04:22.904  ALERTA  [UMID-01]     92,5 %: acima do limite 90,0 % | BAIXA | salvo #64
+22:04:23.105  ALERTA  [UMID-01]     91,2 %: acima do limite 90,0 % | BAIXA | salvo #65
+22:04:23.305  ALERTA  [UMID-01]     90,7 %: acima do limite 90,0 % | BAIXA | salvo #66
+22:04:23.506  ALERTA  [UMID-01]     90,8 %: acima do limite 90,0 % | BAIXA | salvo #67
+22:04:23.706  ALERTA  [UMID-01]     91,7 %: acima do limite 90,0 % | BAIXA | salvo #68
+22:04:23.906  ALERTA  [UMID-01]     91,3 %: acima do limite 90,0 % | BAIXA | salvo #69
+22:04:24.106  ALERTA  [UMID-01]     90,9 %: acima do limite 90,0 % | BAIXA | salvo #70
+22:04:24.307  ALERTA  [UMID-01]     90,4 %: acima do limite 90,0 % | BAIXA | salvo #71
+22:04:25.499  ALERTA  [TEMP-01]     80,3 °C: acima do limite 80,0 °C | BAIXA | salvo #72
+22:04:25.699  ALERTA  [TEMP-01]     80,6 °C: acima do limite 80,0 °C | BAIXA | salvo #73
+22:04:25.899  ALERTA  [TEMP-01]     80,8 °C: acima do limite 80,0 °C | BAIXA | salvo #74
+22:04:26.100  ALERTA  [TEMP-01]     81,2 °C: acima do limite 80,0 °C | BAIXA | salvo #75
+22:04:26.300  ALERTA  [TEMP-01]     82,2 °C: acima do limite 80,0 °C | BAIXA | salvo #76
+22:04:26.500  ALERTA  [TEMP-01]     81,3 °C: acima do limite 80,0 °C | BAIXA | salvo #77
+22:04:26.700  ALERTA  [TEMP-01]     80,8 °C: acima do limite 80,0 °C | BAIXA | salvo #78
+22:04:26.901  ALERTA  [TEMP-01]     80,6 °C: acima do limite 80,0 °C | BAIXA | salvo #79
+22:04:27.101  ALERTA  [TEMP-01]     80,3 °C: acima do limite 80,0 °C | BAIXA | salvo #80
+22:04:27.875  INFO    [sistema]     Encerrado: 600 leituras, 0 perdidas, 80 alertas. Extrato: data/extrato-20261115-220427.txt
 
 EXTRATO DA EXECUÇÃO — Central de Telemetria
-Período ......... 10/11/2026 17:12:10 → 17:12:40 (0:00:30)
+Período ......... 15/11/2026 22:03:57 → 22:04:27 (0:00:30)
 Configuração .... 4 sensores · 1 consumidor(es) · intervalo 200 ms
+
+FAIXAS ACEITAS (por sensor)
+  TEMP-01       0,0 a 80,0 °C
+  VEL-01        0,0 a 120,0 km/h
+  PRES-01       1,0 a 8,0 bar
+  UMID-01       20,0 a 90,0 %
 
 LEITURAS
   Produzidas ...... 600
@@ -64,11 +100,11 @@ LEITURAS
   Perdidas ........ 0   (produzidas − processadas)
 
 ALERTAS POR TIPO / SEVERIDADE
-  TEMPERATURA   BAIXA 0    MEDIA 4    ALTA 4    CRITICA 0     total 8
-  VELOCIDADE    BAIXA 0    MEDIA 4    ALTA 3    CRITICA 0     total 7
-  PRESSAO       BAIXA 26   MEDIA 0    ALTA 0    CRITICA 0     total 26
-  UMIDADE       BAIXA 10   MEDIA 0    ALTA 0    CRITICA 0     total 10
-  TOTAL ........... 51 alertas  (gravados no banco: 51)
+  TEMPERATURA   BAIXA 18   MEDIA 7    ALTA 0    CRITICA 0     total 25
+  VELOCIDADE    BAIXA 4    MEDIA 6    ALTA 0    CRITICA 0     total 10
+  PRESSAO       BAIXA 2    MEDIA 5    ALTA 0    CRITICA 0     total 7
+  UMIDADE       BAIXA 38   MEDIA 0    ALTA 0    CRITICA 0     total 38
+  TOTAL ........... 80 alertas  (gravados no banco: 80)
 
 ARQUIVOS
   Log de leituras  data/leituras.log

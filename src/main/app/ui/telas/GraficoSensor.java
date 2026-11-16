@@ -59,7 +59,7 @@ public final class GraficoSensor extends JComponent {
     private static final long[] PASSOS_TEMPO_MS = {1_000, 2_000, 5_000, 10_000, 15_000, 30_000, 60_000, 120_000,
             300_000, 600_000, 900_000, 1_800_000, 3_600_000, 7_200_000};
 
-    private final RegraExibida regra;
+    private RegraExibida regra;
     private final TipoSensor tipo;
 
     // série: tempo (ms), valor e severidade (ordinal ou SEM_ALERTA), sempre em ordem de tempo
@@ -78,6 +78,14 @@ public final class GraficoSensor extends JComponent {
     private boolean expandido;
     private long janelaMs;          // 0 = tudo
     private int mouseX = -1;
+
+    /** Faixa aceita do sensor mudou: limites pontilhados e sombra passam a usar a nova; o histórico fica. EDT. */
+    public void definirRegra(RegraExibida nova) {
+        if (!nova.equals(regra)) {
+            regra = nova;
+            repaint();
+        }
+    }
 
     public GraficoSensor(RegraExibida regra, Runnable aoDuploClique) {
         this.regra = regra;
